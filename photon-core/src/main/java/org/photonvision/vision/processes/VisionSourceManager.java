@@ -297,7 +297,35 @@ public class VisionSourceManager {
         List<PVCameraInfo> cameraInfos = new ArrayList<>();
         // find all connected cameras
         // cscore can return usb and csi cameras but csi are filtered out
-        Stream.of(UsbCamera.enumerateUsbCameras())
+        long enumStart = System.nanoTime();
+        var usbCamInfos = UsbCamera.enumerateUsbCameras();
+        long enumTimeMs = (System.nanoTime() - enumStart) / 1_000_000;
+
+        if (enumTimeMs > 100) {
+            logger.warn(
+                    "USB camera enumeration took "
+                            + enumTimeMs
+                            + "ms (expected <10ms) - possible USB bus issue");
+        }
+        logger.debug(
+                "USB camera enumeration returned "
+                        + usbCamInfos.length
+                        + " cameras in "
+                        + enumTimeMs
+                        + "ms");
+        for (var c : usbCamInfos) {
+            logger.debug(
+                    "  Enumerated: name='"
+                            + c.name
+                            + "' path='"
+                            + c.path
+                            + "' vid="
+                            + c.vendorId
+                            + " pid="
+                            + c.productId);
+        }
+
+        Stream.of(usbCamInfos)
                 .map(c -> PVCameraInfo.fromUsbCameraInfo(c))
                 .filter(c -> !(String.join("", c.otherPaths()).contains("csi-video")))
                 .filter(c -> !c.name().equals("unicam"))

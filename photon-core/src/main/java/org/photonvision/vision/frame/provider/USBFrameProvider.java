@@ -25,6 +25,7 @@ import edu.wpi.first.util.RawFrame;
 import org.opencv.core.Mat;
 import org.photonvision.common.logging.LogGroup;
 import org.photonvision.common.logging.Logger;
+import org.photonvision.common.util.CameraHealthMonitor;
 import org.photonvision.jni.CscoreExtras;
 import org.photonvision.vision.opencv.CVMat;
 import org.photonvision.vision.processes.VisionSourceSettables;
@@ -41,6 +42,7 @@ public class USBFrameProvider extends CpuImageProcessor {
     private Runnable connectedCallback;
 
     private long lastTime = 0;
+    private boolean wasConnected = false;
 
     @SuppressWarnings("SpellCheckingInspection")
     public USBFrameProvider(
@@ -60,6 +62,14 @@ public class USBFrameProvider extends CpuImageProcessor {
     @Override
     public boolean checkCameraConnected() {
         boolean connected = camera.isConnected();
+
+        // Track connection state transitions for cross-camera correlation
+        if (wasConnected && !connected) {
+            CameraHealthMonitor.reportDisconnect(camera.getName());
+        } else if (!wasConnected && connected) {
+            CameraHealthMonitor.reportConnect(camera.getName());
+        }
+        wasConnected = connected;
 
         if (!cameraPropertiesCached && connected) {
             logger.info("Camera connected! running callback");
@@ -88,7 +98,9 @@ public class USBFrameProvider extends CpuImageProcessor {
 
             if (captureTimeNs == 0) {
                 var error = cvSink.getError();
-                logger.error("Error grabbing image: " + error);
+                CameraHealthMonitor.reportGrabError(camera.getName(), error);
+            } else {
+                CameraHealthMonitor.reportGrabSuccess(camera.getName());
             }
 
             return new CapturedFrame(mat, settables.getFrameStaticProperties(), captureTimeNs);
@@ -116,11 +128,12 @@ public class USBFrameProvider extends CpuImageProcessor {
 
             if (captureTimeUs == 0) {
                 var error = cvSink.getError();
-                logger.error("Error grabbing image: " + error);
+                CameraHealthMonitor.reportGrabError(camera.getName(), error);
 
                 frame.close();
                 ret = new CVMat();
             } else {
+                CameraHealthMonitor.reportGrabSuccess(camera.getName());
                 // No error! yay
                 var mat = new Mat(CscoreExtras.wrapRawFrame(frame.getNativeObj()));
 
