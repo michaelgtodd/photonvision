@@ -82,8 +82,7 @@ public class CameraHealthMonitor {
 
         if (disconnectTime != null) {
             long outageMs = (now - disconnectTime) / 1_000_000;
-            logger.warn(
-                    "Camera '" + cameraName + "' reconnected (outage duration: " + outageMs + "ms)");
+            logger.warn("Camera '" + cameraName + "' reconnected (outage duration: " + outageMs + "ms)");
         } else {
             logger.warn("Camera '" + cameraName + "' connected");
         }
@@ -96,8 +95,7 @@ public class CameraHealthMonitor {
      * @param errorMsg The error message from cscore
      */
     public static void reportGrabError(String cameraName, String errorMsg) {
-        int errorCount =
-                consecutiveGrabErrors.compute(cameraName, (k, v) -> (v == null ? 0 : v) + 1);
+        int errorCount = consecutiveGrabErrors.compute(cameraName, (k, v) -> (v == null ? 0 : v) + 1);
 
         if (errorCount == 1) {
             firstGrabErrorTimeNs.put(cameraName, System.nanoTime());
@@ -131,8 +129,7 @@ public class CameraHealthMonitor {
 
         if (prevErrors != null && prevErrors > 0) {
             Long firstError = firstGrabErrorTimeNs.get(cameraName);
-            long outageMs =
-                    (firstError != null) ? (System.nanoTime() - firstError) / 1_000_000 : -1;
+            long outageMs = (firstError != null) ? (System.nanoTime() - firstError) / 1_000_000 : -1;
             logger.warn(
                     "Camera '"
                             + cameraName

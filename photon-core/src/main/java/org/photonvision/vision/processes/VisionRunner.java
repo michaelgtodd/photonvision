@@ -190,8 +190,10 @@ public class VisionRunner {
             if (frame.processedImage.getMat().empty() && frame.colorImage.getMat().empty()) {
                 // give up without increasing loop count
                 // Still feed with blank frames just dont run any pipelines
-                logger.warn("Empty frame received from " + frameSupplier.getName()
-                        + " (camera may be disconnected)");
+                logger.warn(
+                        "Empty frame received from "
+                                + frameSupplier.getName()
+                                + " (camera may be disconnected)");
 
                 frame.release();
                 pipelineResultConsumer.accept(new CVPipelineResult(0l, 0, 0, null, new Frame()));
