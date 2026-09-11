@@ -143,13 +143,13 @@ public class USBFrameProvider extends CpuImageProcessor {
     /**
      * Grab a frame from a Y16 source and convert it to 8-bit BGR ourselves.
      *
-     * <p>Monochrome sensors behind a raw V4L2 capture pipeline (for instance the AR0234 heads on
-     * an NVIDIA Jetson VI node) advertise Y16: one little-endian 16-bit word per pixel, MSB
-     * aligned. cscore must not be asked to convert it: its Y16-to-grey conversion is a per-frame
-     * min/max stretch (cv::normalize), which would make exposure and gain meaningless for vision
-     * processing, and in 2026.x it throws a cv::Exception from inside the frame pipeline and
-     * takes the JVM down with it. So request the frame in Y16, which cscore hands over without
-     * conversion, keep the top 8 bits, and replicate to BGR for the rest of the pipeline.
+     * <p>Monochrome sensors behind a raw V4L2 capture pipeline (for instance the AR0234 heads on an
+     * NVIDIA Jetson VI node) advertise Y16: one little-endian 16-bit word per pixel, MSB aligned.
+     * cscore must not be asked to convert it: its Y16-to-grey conversion is a per-frame min/max
+     * stretch (cv::normalize), which would make exposure and gain meaningless for vision processing,
+     * and in 2026.x it throws a cv::Exception from inside the frame pipeline and takes the JVM down
+     * with it. So request the frame in Y16, which cscore hands over without conversion, keep the top
+     * 8 bits, and replicate to BGR for the rest of the pipeline.
      */
     private CapturedFrame grabY16(VideoMode mode) {
         try (var frame = new RawFrame()) {
@@ -179,7 +179,11 @@ public class USBFrameProvider extends CpuImageProcessor {
                             CvType.CV_16UC1);
             if (rawPtr == 0) {
                 logger.error(
-                        "Expected a " + mode.width + "x" + mode.height + " Y16 frame from cscore, got something else");
+                        "Expected a "
+                                + mode.width
+                                + "x"
+                                + mode.height
+                                + " Y16 frame from cscore, got something else");
                 return new CapturedFrame(new CVMat(), settables.getFrameStaticProperties(), 0);
             }
 

@@ -91,9 +91,9 @@ public class QuirkyCamera {
 
     /**
      * Cameras matched on the start of their name rather than the end. The name a Linux V4L2 capture
-     * node reports for a sensor behind a platform capture pipeline carries the sensor's bus
-     * address, which differs per head and can change between boots (e.g. "vi-output,
-     * ar0234_client 9-0013" on an NVIDIA Jetson), so a suffix match cannot identify the family.
+     * node reports for a sensor behind a platform capture pipeline carries the sensor's bus address,
+     * which differs per head and can change between boots (e.g. "vi-output, ar0234_client 9-0013" on
+     * an NVIDIA Jetson), so a suffix match cannot identify the family.
      */
     private static final List<QuirkyCamera> quirkyCamerasByNamePrefix =
             List.of(
