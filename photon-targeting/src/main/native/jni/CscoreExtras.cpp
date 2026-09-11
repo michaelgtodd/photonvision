@@ -146,6 +146,32 @@ Java_org_photonvision_jni_CscoreExtras_wrapRawFrame
 
 /*
  * Class:     org_photonvision_jni_CscoreExtras
+ * Method:    wrapRawFrameAs
+ * Signature: (JIIII)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_photonvision_jni_CscoreExtras_wrapRawFrameAs
+  (JNIEnv*, jclass, jlong framePtr, jint width, jint height, jint pixelFormat,
+   jint cvType)
+{
+  auto* frame = reinterpret_cast<wpi::RawFrame*>(framePtr);
+  const int rowBytes = width * static_cast<int>(CV_ELEM_SIZE(cvType));
+  // stride may be 0, meaning rows are packed
+  const int stride = frame->stride > 0 ? frame->stride : rowBytes;
+
+  if (frame->width != width || frame->height != height ||
+      frame->pixelFormat != pixelFormat || frame->data == nullptr ||
+      stride < rowBytes ||
+      frame->size < static_cast<size_t>(stride) * height) {
+    return 0;
+  }
+
+  return reinterpret_cast<jlong>(
+      new cv::Mat(height, width, cvType, frame->data, stride));
+}
+
+/*
+ * Class:     org_photonvision_jni_CscoreExtras
  * Method:    getTimestampSourceNative
  * Signature: (J)I
  */

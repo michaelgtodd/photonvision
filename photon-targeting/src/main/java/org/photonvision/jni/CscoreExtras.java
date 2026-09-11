@@ -46,6 +46,25 @@ public class CscoreExtras {
      */
     public static native long wrapRawFrame(long rawFramePtr);
 
+    /**
+     * Wrap the data owned by a RawFrame in a cv::Mat of a caller-chosen element type, after checking
+     * that the frame really holds what the caller expects.
+     *
+     * <p>Unlike {@link #wrapRawFrame}, which picks the type from the frame's pixel format and views
+     * Y16 as two 8-bit channels, this lets a 16-bit grey frame be viewed as CV_16UC1 so it can be
+     * converted rather than misread. The Java-side fields of a RawFrame are not updated by {@link
+     * #grabRawSinkFrameTimeoutLastTime}, so the check is done against the native frame.
+     *
+     * @param rawFramePtr Pointer to a wpi::RawFrame.
+     * @param width Expected width, in pixels.
+     * @param height Expected height, in pixels.
+     * @param pixelFormat Expected WPI pixel format (PixelFormat.getValue()).
+     * @param cvType OpenCV element type to view the data as (CvType.CV_16UC1, for instance).
+     * @return pointer to a cv::Mat, or 0 if the frame does not match the expected geometry/format.
+     */
+    public static native long wrapRawFrameAs(
+            long rawFramePtr, int width, int height, int pixelFormat, int cvType);
+
     private static native int getTimestampSourceNative(long rawFramePtr);
 
     public static TimestampSource getTimestampSource(RawFrame frame) {
