@@ -37,6 +37,30 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
     // Use the GPU detector (photon-gpu, NVIDIA Jetson) when it is installed
     public boolean gpuDetector = false;
 
+    // Tier 2: full-resolution search of the far-field band on its own thread
+    public boolean farFieldEnabled = false;
+    public double farFieldRateHz = 10;
+    public double farFieldUpsample =
+            1.0; // 1.5 finds blurred tags one size step smaller at 2.25x cost
+    public int farFieldThreads = 1;
+    public boolean farFieldAutoBand = false; // from mount pose + calibration; else the fractions
+    public double farFieldBandTop = 0.35; // fractions of image height
+    public double farFieldBandBottom = 0.65;
+    public double mountHeightMeters = 0.5;
+    public double mountPitchDegrees = 0; // positive = tilted up
+    public double farFieldMinDistanceMeters = 5.0;
+    public double tagHeightMinMeters = 0.2;
+    public double tagHeightMaxMeters = 1.5;
+    public double tiltMarginDegrees = 3.0;
+
+    // Tier 3: full-resolution re-detection of known tags in ROIs, every frame
+    public boolean roiTrackEnabled = false;
+    public double roiMargin = 2.0;
+    public int roiPadPx = 16;
+    public int roiMaxCount = 8;
+    public int roiMaxMisses = 10;
+    public double roiUpsample = 1.0;
+
     // 3d settings
 
     public AprilTagPipelineSettings() {
@@ -60,6 +84,25 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
         result = prime * result + threads;
         result = prime * result + (debug ? 1231 : 1237);
         result = prime * result + (gpuDetector ? 1231 : 1237);
+        result = prime * result + (farFieldEnabled ? 1231 : 1237);
+        result = prime * result + Double.hashCode(farFieldRateHz);
+        result = prime * result + Double.hashCode(farFieldUpsample);
+        result = prime * result + farFieldThreads;
+        result = prime * result + (farFieldAutoBand ? 1231 : 1237);
+        result = prime * result + Double.hashCode(farFieldBandTop);
+        result = prime * result + Double.hashCode(farFieldBandBottom);
+        result = prime * result + Double.hashCode(mountHeightMeters);
+        result = prime * result + Double.hashCode(mountPitchDegrees);
+        result = prime * result + Double.hashCode(farFieldMinDistanceMeters);
+        result = prime * result + Double.hashCode(tagHeightMinMeters);
+        result = prime * result + Double.hashCode(tagHeightMaxMeters);
+        result = prime * result + Double.hashCode(tiltMarginDegrees);
+        result = prime * result + (roiTrackEnabled ? 1231 : 1237);
+        result = prime * result + Double.hashCode(roiMargin);
+        result = prime * result + roiPadPx;
+        result = prime * result + roiMaxCount;
+        result = prime * result + roiMaxMisses;
+        result = prime * result + Double.hashCode(roiUpsample);
         result = prime * result + (refineEdges ? 1231 : 1237);
         result = prime * result + numIterations;
         result = prime * result + hammingDist;
@@ -87,6 +130,25 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
         if (doMultiTarget != other.doMultiTarget) return false;
         if (doSingleTargetAlways != other.doSingleTargetAlways) return false;
         if (gpuDetector != other.gpuDetector) return false;
+        if (farFieldEnabled != other.farFieldEnabled) return false;
+        if (farFieldRateHz != other.farFieldRateHz) return false;
+        if (farFieldUpsample != other.farFieldUpsample) return false;
+        if (farFieldThreads != other.farFieldThreads) return false;
+        if (farFieldAutoBand != other.farFieldAutoBand) return false;
+        if (farFieldBandTop != other.farFieldBandTop) return false;
+        if (farFieldBandBottom != other.farFieldBandBottom) return false;
+        if (mountHeightMeters != other.mountHeightMeters) return false;
+        if (mountPitchDegrees != other.mountPitchDegrees) return false;
+        if (farFieldMinDistanceMeters != other.farFieldMinDistanceMeters) return false;
+        if (tagHeightMinMeters != other.tagHeightMinMeters) return false;
+        if (tagHeightMaxMeters != other.tagHeightMaxMeters) return false;
+        if (tiltMarginDegrees != other.tiltMarginDegrees) return false;
+        if (roiTrackEnabled != other.roiTrackEnabled) return false;
+        if (roiMargin != other.roiMargin) return false;
+        if (roiPadPx != other.roiPadPx) return false;
+        if (roiMaxCount != other.roiMaxCount) return false;
+        if (roiMaxMisses != other.roiMaxMisses) return false;
+        if (roiUpsample != other.roiUpsample) return false;
         return true;
     }
 }

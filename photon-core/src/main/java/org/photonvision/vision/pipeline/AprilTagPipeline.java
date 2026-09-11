@@ -38,6 +38,9 @@ import org.photonvision.estimation.TargetModel;
 import org.photonvision.jni.GpuAprilTagJNI;
 import org.photonvision.targeting.MultiTargetPNPResult;
 import org.photonvision.vision.apriltag.AprilTagFamily;
+import org.photonvision.vision.apriltag.FarFieldBand;
+import org.photonvision.vision.apriltag.FarFieldSearch;
+import org.photonvision.vision.apriltag.RoiTracker;
 import org.photonvision.vision.frame.Frame;
 import org.photonvision.vision.frame.FrameThresholdType;
 import org.photonvision.vision.pipe.CVPipe.CVPipeResult;
@@ -61,6 +64,15 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
     // The GPU detector (photon-gpu on a Jetson); created on first use, kept for the pipeline's life
     private AprilTagDetectionGpuPipe gpuDetectionPipe = null;
     private boolean useGpuDetector = false;
+
+    // Tiers 2 and 3 (see docs/apriltag-rate-plan.md in jetson-gmsl-quad-ar0234): a background
+    // full-resolution search of the far-field band seeds a per-frame full-resolution ROI
+    // re-detection of tags the main detector did not see.
+    private FarFieldSearch farFieldSearch = null;
+    private RoiTracker roiTracker = null;
+    private AprilTagDetector.QuadThresholdParameters lastQuadParams = null;
+    private long tierSeq = 0;
+    private long lastTierLogNanos = 0;
     private final AprilTagPoseEstimatorPipe singleTagPoseEstimatorPipe =
             new AprilTagPoseEstimatorPipe();
     private final MultiTargetPNPPipe multiTagPNPPipe = new MultiTargetPNPPipe();
@@ -114,6 +126,17 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
         aprilTagDetectionPipe.setParams(
                 new AprilTagDetectionPipeParams(settings.tagFamily, config, quadParams));
 
+        lastQuadParams = quadParams;
+        if (settings.farFieldEnabled) {
+            if (farFieldSearch == null) farFieldSearch = new FarFieldSearch(getClass().getSimpleName());
+            farFieldSearch.configure(
+                    settings.tagFamily.getNativeName(), settings.farFieldThreads, quadParams);
+        }
+        if (settings.roiTrackEnabled) {
+            if (roiTracker == null) roiTracker = new RoiTracker();
+            roiTracker.configure(settings.tagFamily.getNativeName(), 1, quadParams);
+        }
+
         // GPU detector: only when asked for and the native library is installed; otherwise the
         // CPU detector above stays in use and the setting is a no-op.
         useGpuDetector = settings.gpuDetector && GpuAprilTagJNI.isAvailable();
@@ -151,6 +174,95 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
         }
     }
 
+    /**
+     * Tier 2 (far-field band, background) and tier 3 (ROI re-detection, this frame), merged with the
+     * main detector's results: an id re-detected at full resolution replaces the main detector's
+     * version; ids only tier 3 found are added.
+     */
+    private List<AprilTagDetection> runTiers(
+            Frame frame, AprilTagPipelineSettings settings, List<AprilTagDetection> tier1) {
+        if (!settings.farFieldEnabled && !settings.roiTrackEnabled) return tier1;
+        var grey = frame.processedImage.getMat();
+        if (grey.empty()) return tier1;
+        long seq = ++tierSeq;
+
+        List<AprilTagDetection> seeds = List.of();
+        if (settings.farFieldEnabled && farFieldSearch != null) {
+            var band =
+                    FarFieldBand.fromFractions(
+                            grey.cols(), grey.rows(), settings.farFieldBandTop, settings.farFieldBandBottom);
+            var cal = frameStaticProperties.cameraCalibration;
+            if (settings.farFieldAutoBand && cal != null) {
+                var k = cal.getCameraIntrinsicsMat();
+                if (k != null && k.rows() > 0) {
+                    band =
+                            FarFieldBand.fromMount(
+                                    grey.cols(),
+                                    grey.rows(),
+                                    k.get(1, 1)[0],
+                                    k.get(1, 2)[0],
+                                    settings.mountHeightMeters,
+                                    settings.mountPitchDegrees,
+                                    settings.farFieldMinDistanceMeters,
+                                    settings.tagHeightMinMeters,
+                                    settings.tagHeightMaxMeters,
+                                    settings.tiltMarginDegrees,
+                                    32);
+                }
+            }
+            double interval = settings.farFieldRateHz > 0 ? 1.0 / settings.farFieldRateHz : 1.0;
+            farFieldSearch.offer(grey, band, settings.farFieldUpsample, seq, interval);
+            seeds = farFieldSearch.takeResults();
+        }
+
+        if (!settings.roiTrackEnabled || roiTracker == null) {
+            // Without tier 3 the far-field results are used as they are (older frame)
+            if (seeds.isEmpty()) return tier1;
+            return merge(tier1, seeds);
+        }
+
+        var params =
+                new RoiTracker.Params(
+                        settings.roiMargin,
+                        settings.roiPadPx,
+                        settings.roiMaxCount,
+                        settings.roiMaxMisses,
+                        settings.roiUpsample);
+        var tier3 = roiTracker.update(grey, seq, tier1, seeds, params);
+
+        long now = System.nanoTime();
+        if (now - lastTierLogNanos > 30_000_000_000L) {
+            lastTierLogNanos = now;
+            logger.info(
+                    "tiers: main "
+                            + tier1.size()
+                            + ", far-field seeds "
+                            + seeds.size()
+                            + " (last search "
+                            + (farFieldSearch != null
+                                    ? String.format("%.1f", farFieldSearch.lastSearchMillis())
+                                    : "-")
+                            + " ms), roi "
+                            + tier3.size()
+                            + " of "
+                            + roiTracker.trackCount()
+                            + " tracked");
+        }
+        return merge(tier1, tier3);
+    }
+
+    /** Detections from {@code fullRes} replace same-id entries of {@code base}; others are added. */
+    private static List<AprilTagDetection> merge(
+            List<AprilTagDetection> base, List<AprilTagDetection> fullRes) {
+        if (fullRes.isEmpty()) return base;
+        var out = new ArrayList<AprilTagDetection>(base.size() + fullRes.size());
+        var replaced = new java.util.HashSet<Integer>();
+        for (var d : fullRes) replaced.add(d.getId());
+        for (var d : base) if (!replaced.contains(d.getId())) out.add(d);
+        out.addAll(fullRes);
+        return out;
+    }
+
     @Override
     protected CVPipelineResult process(Frame frame, AprilTagPipelineSettings settings) {
         long sumPipeNanosElapsed = 0L;
@@ -167,6 +279,7 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
         sumPipeNanosElapsed += tagDetectionPipeResult.nanosElapsed;
 
         List<AprilTagDetection> detections = tagDetectionPipeResult.output;
+        detections = runTiers(frame, settings, detections);
         List<AprilTagDetection> usedDetections = new ArrayList<>();
         List<TrackedTarget> targetList = new ArrayList<>();
 
@@ -277,6 +390,8 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
     public void release() {
         aprilTagDetectionPipe.release();
         if (gpuDetectionPipe != null) gpuDetectionPipe.release();
+        if (farFieldSearch != null) farFieldSearch.close();
+        if (roiTracker != null) roiTracker.close();
         singleTagPoseEstimatorPipe.release();
         super.release();
     }
