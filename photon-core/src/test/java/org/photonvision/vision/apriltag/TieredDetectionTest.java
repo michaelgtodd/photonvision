@@ -50,7 +50,7 @@ public class TieredDetectionTest {
     }
 
     /** A frame with markers of side {@code sidePx} (black border included) at the given positions. */
-    static Mat frameWithTags(Map<Integer, int[]> tags, int sidePx, double blurSigma) {
+    public static Mat frameWithTags(Map<Integer, int[]> tags, int sidePx, double blurSigma) {
         var rng = new Random(1);
         Mat img = new Mat(H, W, CvType.CV_8UC1, new Scalar(110));
         // some texture so the background is not flat
