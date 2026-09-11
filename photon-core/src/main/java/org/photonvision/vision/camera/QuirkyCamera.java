@@ -89,6 +89,18 @@ public class QuirkyCamera {
                     new QuirkyCamera(
                             0x0c45, 0x636d, "USB Camera", "Innomaker OV9281", CameraQuirk.InnoOV9281Controls));
 
+    /**
+     * Cameras matched on the start of their name rather than the end. The name a Linux V4L2 capture
+     * node reports for a sensor behind a platform capture pipeline carries the sensor's bus
+     * address, which differs per head and can change between boots (e.g. "vi-output,
+     * ar0234_client 9-0013" on an NVIDIA Jetson), so a suffix match cannot identify the family.
+     */
+    private static final List<QuirkyCamera> quirkyCamerasByNamePrefix =
+            List.of(
+                    // AR0234 mono heads over GMSL2 on a Jetson VI node (jetson-gmsl-quad-ar0234):
+                    // tegracam exposes "gain" and "exposure"; the node advertises Y16.
+                    new QuirkyCamera(-1, -1, "vi-output, ar0234_client", CameraQuirk.Gain));
+
     public static final QuirkyCamera DefaultCamera = new QuirkyCamera(0, 0, "");
     public static final QuirkyCamera ZeroCopyPiCamera =
             new QuirkyCamera(
@@ -194,6 +206,12 @@ public class QuirkyCamera {
     }
 
     public static QuirkyCamera getQuirkyCamera(int usbVid, int usbPid, String baseName) {
+        for (var qc : quirkyCamerasByNamePrefix) {
+            if (baseName.startsWith(qc.baseName)) {
+                return new QuirkyCamera(baseName, usbVid, usbPid, "", new EnumMap<>(qc.quirks));
+            }
+        }
+
         for (var qc : quirkyCameras) {
             boolean useBaseNameMatch = !qc.baseName.isEmpty();
             boolean matchesBaseName = true; // default to matching
