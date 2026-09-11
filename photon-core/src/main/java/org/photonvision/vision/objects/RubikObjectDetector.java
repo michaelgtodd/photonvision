@@ -68,9 +68,9 @@ public class RubikObjectDetector implements ObjectDetector {
 
         // Create the detector
         try {
-            ptr =
-                    RubikJNI.create(
-                            model.modelFile.getPath().toString(), model.properties.version().ordinal());
+            // rubik_jni v2026.0.1 (the released build; the snapshot v2026.3.4 pinned was purged)
+            // takes only the model path. Rubik (QCS6490 NPU) is never loaded on a Jetson anyway.
+            ptr = RubikJNI.create(model.modelFile.getPath().toString());
         } catch (Exception e) {
             logger.error("Failed to create detector from path " + model.modelFile.getPath(), e);
             throw new RuntimeException(
