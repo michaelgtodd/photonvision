@@ -18,3 +18,8 @@ the note in `src/GpuAprilTagJNI.cc`).
 | `third_party/frc971` | Team 971's `frc971/orin`, via Team 4143's `GpuDetectorJNI` (adds grey input and the decimate parameter), plus a random-access iterator fix for CCCL 3 | Apache-2.0 |
 | `third_party/apriltag` | AprilRobotics apriltag, Team 4143's copy (exports `quad_decode_index`) | BSD-2-Clause |
 | `compat/` | CUDA 13 / CCCL 3 replacements for two removed CUB iterators | this repository |
+
+Local modifications to the vendored 971 sources (all marked `photon-gpu:` in
+the code): `transform_output_iterator.h` random access for CCCL 3;
+`971apriltag.cu` `DetectGrayHost()` decodes from the caller's host image
+instead of copying the grey image back from the device.

@@ -88,5 +88,159 @@ const interactiveCols = computed(() =>
         (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ refineEdges: value }, false)
       "
     />
+    <!-- Jetson: GPU detector and the far-field tiers -->
+    <pv-switch
+      v-model="currentPipelineSettings.gpuDetector"
+      :switch-cols="interactiveCols"
+      label="GPU detector"
+      tooltip="Detect on the GPU (NVIDIA Jetson with photon-gpu installed). Quad finding runs at decimate 2 above 1024 px; corners are refined at full resolution. Falls back to the CPU detector if the library is not available."
+      @update:modelValue="
+        (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ gpuDetector: value }, false)
+      "
+    />
+    <pv-switch
+      v-model="currentPipelineSettings.farFieldEnabled"
+      :switch-cols="interactiveCols"
+      label="Far-field search"
+      tooltip="Search a horizontal band of the frame at full resolution on a background thread, to find small (distant) tags the main detector misses. Found tags seed ROI tracking."
+      @update:modelValue="
+        (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldEnabled: value }, false)
+      "
+    />
+    <template v-if="currentPipelineSettings.farFieldEnabled">
+      <pv-slider
+        v-model="currentPipelineSettings.farFieldRateHz"
+        :slider-cols="interactiveCols"
+        label="Far-field rate (Hz)"
+        tooltip="How often the band is searched. Each search costs ~50-130 ms of one CPU core."
+        :min="1"
+        :max="22"
+        :step="1"
+        @update:modelValue="
+          (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldRateHz: value }, false)
+        "
+      />
+      <pv-slider
+        v-model="currentPipelineSettings.farFieldUpsample"
+        :slider-cols="interactiveCols"
+        label="Far-field upsample"
+        tooltip="Upsample the band before searching. 1.5 finds blurred tags about one size step smaller at 2.25x the cost."
+        :min="1"
+        :max="2"
+        :step="0.5"
+        @update:modelValue="
+          (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldUpsample: value }, false)
+        "
+      />
+      <pv-switch
+        v-model="currentPipelineSettings.farFieldAutoBand"
+        :switch-cols="interactiveCols"
+        label="Band from mount pose"
+        tooltip="Derive the band from the camera's calibration and its mount height/pitch (needs a calibration); otherwise use the fractions below."
+        @update:modelValue="
+          (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldAutoBand: value }, false)
+        "
+      />
+      <template v-if="!currentPipelineSettings.farFieldAutoBand">
+        <pv-slider
+          v-model="currentPipelineSettings.farFieldBandTop"
+          :slider-cols="interactiveCols"
+          label="Band top"
+          tooltip="Top of the band as a fraction of the image height"
+          :min="0"
+          :max="1"
+          :step="0.01"
+          @update:modelValue="
+            (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldBandTop: value }, false)
+          "
+        />
+        <pv-slider
+          v-model="currentPipelineSettings.farFieldBandBottom"
+          :slider-cols="interactiveCols"
+          label="Band bottom"
+          tooltip="Bottom of the band as a fraction of the image height"
+          :min="0"
+          :max="1"
+          :step="0.01"
+          @update:modelValue="
+            (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldBandBottom: value }, false)
+          "
+        />
+      </template>
+      <template v-else>
+        <pv-slider
+          v-model="currentPipelineSettings.mountHeightMeters"
+          :slider-cols="interactiveCols"
+          label="Camera height (m)"
+          tooltip="Camera height above the floor"
+          :min="0"
+          :max="2"
+          :step="0.01"
+          @update:modelValue="
+            (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ mountHeightMeters: value }, false)
+          "
+        />
+        <pv-slider
+          v-model="currentPipelineSettings.mountPitchDegrees"
+          :slider-cols="interactiveCols"
+          label="Camera pitch (deg, up +)"
+          tooltip="Camera pitch above horizontal"
+          :min="-45"
+          :max="45"
+          :step="0.5"
+          @update:modelValue="
+            (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ mountPitchDegrees: value }, false)
+          "
+        />
+        <pv-slider
+          v-model="currentPipelineSettings.farFieldMinDistanceMeters"
+          :slider-cols="interactiveCols"
+          label="Far field starts at (m)"
+          tooltip="Tags nearer than this are the main detector's job"
+          :min="2"
+          :max="15"
+          :step="0.5"
+          @update:modelValue="
+            (value) =>
+              useCameraSettingsStore().changeCurrentPipelineSetting({ farFieldMinDistanceMeters: value }, false)
+          "
+        />
+      </template>
+    </template>
+    <pv-switch
+      v-model="currentPipelineSettings.roiTrackEnabled"
+      :switch-cols="interactiveCols"
+      label="ROI tracking"
+      tooltip="Every frame, re-detect at full resolution, in a small crop, tags the main detector did not see but that are known from the far-field search or earlier frames."
+      @update:modelValue="
+        (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ roiTrackEnabled: value }, false)
+      "
+    />
+    <template v-if="currentPipelineSettings.roiTrackEnabled">
+      <pv-slider
+        v-model="currentPipelineSettings.roiUpsample"
+        :slider-cols="interactiveCols"
+        label="ROI upsample"
+        tooltip="Upsample each ROI before re-detection"
+        :min="1"
+        :max="2"
+        :step="0.5"
+        @update:modelValue="
+          (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ roiUpsample: value }, false)
+        "
+      />
+      <pv-slider
+        v-model="currentPipelineSettings.roiMaxCount"
+        :slider-cols="interactiveCols"
+        label="Max ROIs per frame"
+        tooltip="Upper bound on ROI re-detections per frame (~2.6 ms each at full resolution)"
+        :min="1"
+        :max="16"
+        :step="1"
+        @update:modelValue="
+          (value) => useCameraSettingsStore().changeCurrentPipelineSetting({ roiMaxCount: value }, false)
+        "
+      />
+    </template>
   </div>
 </template>

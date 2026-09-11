@@ -31,12 +31,24 @@ import org.photonvision.vision.pipe.impl.RotateImagePipe;
 public abstract class CpuImageProcessor extends FrameProvider {
     protected static class CapturedFrame {
         CVMat colorImage;
+        // For monochrome sources: the 8-bit grey image the colour image was made from, so a
+        // greyscale pipeline need not convert BGR back to grey. May be null.
+        CVMat greyImage;
         FrameStaticProperties staticProps;
         long captureTimestamp;
 
         public CapturedFrame(
                 CVMat colorImage, FrameStaticProperties staticProps, long captureTimestampNanos) {
+            this(colorImage, null, staticProps, captureTimestampNanos);
+        }
+
+        public CapturedFrame(
+                CVMat colorImage,
+                CVMat greyImage,
+                FrameStaticProperties staticProps,
+                long captureTimestampNanos) {
             this.colorImage = colorImage;
+            this.greyImage = greyImage;
             this.staticProps = staticProps;
             this.captureTimestamp = captureTimestampNanos;
         }
@@ -66,6 +78,8 @@ public abstract class CpuImageProcessor extends FrameProvider {
         var input = getInputMat();
 
         m_rImagePipe.run(input.colorImage.getMat());
+        boolean rotated = m_rImagePipe.getParams().rotation() != ImageRotationMode.DEG_0;
+        if (input.greyImage != null && rotated) m_rImagePipe.run(input.greyImage.getMat());
 
         CVMat outputMat = null;
         if (!input.colorImage.getMat().empty()) {
@@ -73,8 +87,14 @@ public abstract class CpuImageProcessor extends FrameProvider {
                 var hsvResult = m_hsvPipe.run(input.colorImage.getMat());
                 outputMat = new CVMat(hsvResult.output);
             } else if (m_processType == FrameThresholdType.GREYSCALE) {
-                var result = m_grayPipe.run(input.colorImage.getMat());
-                outputMat = new CVMat(result.output);
+                if (input.greyImage != null) {
+                    // monochrome source: the grey image is the source of truth, no conversion
+                    outputMat = input.greyImage;
+                    input.greyImage = null;
+                } else {
+                    var result = m_grayPipe.run(input.colorImage.getMat());
+                    outputMat = new CVMat(result.output);
+                }
             } else {
                 outputMat = new CVMat();
             }
@@ -83,6 +103,11 @@ public abstract class CpuImageProcessor extends FrameProvider {
         } else {
             System.out.println("Input was empty!");
             outputMat = new CVMat();
+        }
+
+        if (input.greyImage != null) {
+            input.greyImage.release();
+            input.greyImage = null;
         }
 
         return new Frame(

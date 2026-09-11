@@ -195,10 +195,14 @@ public class USBFrameProvider extends CpuImageProcessor {
 
             var bgr = new Mat();
             Imgproc.cvtColor(gray, bgr, Imgproc.COLOR_GRAY2BGR);
-            gray.release();
 
+            // Both go out: BGR for drawing and streaming, grey for greyscale pipelines (which
+            // would otherwise convert the BGR straight back)
             return new CapturedFrame(
-                    new CVMat(bgr), settables.getFrameStaticProperties(), captureTimeUs * 1000);
+                    new CVMat(bgr),
+                    new CVMat(gray),
+                    settables.getFrameStaticProperties(),
+                    captureTimeUs * 1000);
         }
     }
 

@@ -22,6 +22,7 @@
 // from different threads. The object construction follows Team 4143's
 // GpuDetectorJNI (Apache-2.0).
 
+#include <cuda_runtime.h>
 #include <jni.h>
 
 #include <cstdint>
@@ -111,6 +112,13 @@ JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_create(
     ThrowIllegal(env, "GpuAprilTag: decimate 1 only supports frames up to 1024x1024 (packed coordinates)");
     return 0;
   }
+
+  // Before the first CUDA context is created: make stream synchronisation block
+  // on the GPU instead of spinning a CPU core while it works. The detector
+  // synchronises once per frame; with four cameras the spin was a visible
+  // share of the CPU budget. Latency cost is a wake-up, tens of microseconds.
+  static std::once_flag once;
+  std::call_once(once, [] { cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync); });
 
   const char *fam = env->GetStringUTFChars(family, nullptr);
   std::string famName = fam ? fam : "tag36h11";

@@ -797,11 +797,13 @@ void GpuDetector::DetectGrayHost(uint8_t *image) {
       after_threshold_.Record(&stream_);
   } else CHECK(decimate_ == 2 || decimate_ == 1);
 
-  gray_image_device_.MemcpyAsyncTo(&gray_image_host_, &stream_);
-
+  // photon-gpu: the caller's host image is the grey image; decoding from it
+  // saves a 2.3 MB device-to-host copy and a synchronisation per frame. The
+  // pointer must stay valid for the duration of this call (it does: the
+  // JNI holds the frame).
   after_memcpy_gray_.Record(&stream_);
 
-  DetectGray2(gray_image_host_.get());
+  DetectGray2(image);
 }
 
 void GpuDetector::DetectGray(uint8_t *image) {

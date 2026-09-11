@@ -228,6 +228,27 @@ export interface AprilTagPipelineSettings extends PipelineSettings {
   tagFamily: AprilTagFamily;
   doMultiTarget: boolean;
   doSingleTargetAlways: boolean;
+  // Jetson: GPU detector and the far-field tiers (see the jetson-cuda branch)
+  gpuDetector: boolean;
+  farFieldEnabled: boolean;
+  farFieldRateHz: number;
+  farFieldUpsample: number;
+  farFieldThreads: number;
+  farFieldAutoBand: boolean;
+  farFieldBandTop: number;
+  farFieldBandBottom: number;
+  mountHeightMeters: number;
+  mountPitchDegrees: number;
+  farFieldMinDistanceMeters: number;
+  tagHeightMinMeters: number;
+  tagHeightMaxMeters: number;
+  tiltMarginDegrees: number;
+  roiTrackEnabled: boolean;
+  roiMargin: number;
+  roiPadPx: number;
+  roiMaxCount: number;
+  roiMaxMisses: number;
+  roiUpsample: number;
 }
 export type ConfigurableAprilTagPipelineSettings = Partial<
   Omit<AprilTagPipelineSettings, "pipelineType" | "hammingDist" | "debug">
@@ -251,7 +272,27 @@ export const DefaultAprilTagPipelineSettings: AprilTagPipelineSettings = {
   threads: 4,
   tagFamily: AprilTagFamily.Family36h11,
   doMultiTarget: false,
-  doSingleTargetAlways: false
+  doSingleTargetAlways: false,
+  gpuDetector: false,
+  farFieldEnabled: false,
+  farFieldRateHz: 10,
+  farFieldUpsample: 1.0,
+  farFieldThreads: 1,
+  farFieldAutoBand: false,
+  farFieldBandTop: 0.35,
+  farFieldBandBottom: 0.65,
+  mountHeightMeters: 0.5,
+  mountPitchDegrees: 0,
+  farFieldMinDistanceMeters: 5.0,
+  tagHeightMinMeters: 0.2,
+  tagHeightMaxMeters: 1.5,
+  tiltMarginDegrees: 3.0,
+  roiTrackEnabled: false,
+  roiMargin: 2.0,
+  roiPadPx: 16,
+  roiMaxCount: 8,
+  roiMaxMisses: 10,
+  roiUpsample: 1.0
 };
 
 export interface ArucoPipelineSettings extends PipelineSettings {
