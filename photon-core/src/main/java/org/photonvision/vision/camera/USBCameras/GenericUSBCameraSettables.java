@@ -253,6 +253,17 @@ public class GenericUSBCameraSettables extends VisionSourceSettables {
 
     @Override
     public void setBrightness(int brightness) {
+        // A raw sensor (a CSI/GMSL head behind a VI node, say) has no brightness control at all.
+        // cscore still creates a placeholder "brightness" property for it, and writing that fails
+        // with an ioctl error every time a pipeline is applied. Skip it like any other absent
+        // property rather than log an exception for a control that does not exist.
+        VideoProperty prop = camera.getProperty("brightness");
+        if (prop.getKind() == VideoProperty.Kind.kNone) {
+            logger.debug("No property brightness for " + camera.getName() + " , skipping.");
+            this.lastBrightness = brightness;
+            return;
+        }
+
         try {
             camera.setBrightness(brightness);
             this.lastBrightness = brightness;
