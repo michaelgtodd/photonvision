@@ -35,11 +35,14 @@ import org.photonvision.common.logging.LogGroup;
 import org.photonvision.common.logging.Logger;
 import org.photonvision.common.util.math.MathUtils;
 import org.photonvision.estimation.TargetModel;
+import org.photonvision.jni.GpuAprilTagJNI;
 import org.photonvision.targeting.MultiTargetPNPResult;
 import org.photonvision.vision.apriltag.AprilTagFamily;
 import org.photonvision.vision.frame.Frame;
 import org.photonvision.vision.frame.FrameThresholdType;
 import org.photonvision.vision.pipe.CVPipe.CVPipeResult;
+import org.photonvision.vision.pipe.impl.AprilTagDetectionGpuPipe;
+import org.photonvision.vision.pipe.impl.AprilTagDetectionGpuPipe.AprilTagDetectionGpuPipeParams;
 import org.photonvision.vision.pipe.impl.AprilTagDetectionPipe;
 import org.photonvision.vision.pipe.impl.AprilTagDetectionPipe.AprilTagDetectionPipeParams;
 import org.photonvision.vision.pipe.impl.AprilTagPoseEstimatorPipe;
@@ -55,6 +58,9 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
     private static final Logger logger = new Logger(AprilTagPipeline.class, LogGroup.VisionModule);
 
     private final AprilTagDetectionPipe aprilTagDetectionPipe = new AprilTagDetectionPipe();
+    // The GPU detector (photon-gpu on a Jetson); created on first use, kept for the pipeline's life
+    private AprilTagDetectionGpuPipe gpuDetectionPipe = null;
+    private boolean useGpuDetector = false;
     private final AprilTagPoseEstimatorPipe singleTagPoseEstimatorPipe =
             new AprilTagPoseEstimatorPipe();
     private final MultiTargetPNPPipe multiTagPNPPipe = new MultiTargetPNPPipe();
@@ -108,6 +114,21 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
         aprilTagDetectionPipe.setParams(
                 new AprilTagDetectionPipeParams(settings.tagFamily, config, quadParams));
 
+        // GPU detector: only when asked for and the native library is installed; otherwise the
+        // CPU detector above stays in use and the setting is a no-op.
+        useGpuDetector = settings.gpuDetector && GpuAprilTagJNI.isAvailable();
+        if (useGpuDetector) {
+            if (gpuDetectionPipe == null) gpuDetectionPipe = new AprilTagDetectionGpuPipe();
+            gpuDetectionPipe.setParams(
+                    new AprilTagDetectionGpuPipeParams(
+                            settings.tagFamily,
+                            settings.decimate,
+                            settings.threads,
+                            quadParams.minWhiteBlackDiff,
+                            settings.refineEdges,
+                            0.25f));
+        }
+
         if (frameStaticProperties.cameraCalibration != null) {
             var cameraMatrix = frameStaticProperties.cameraCalibration.getCameraIntrinsicsMat();
             if (cameraMatrix != null && cameraMatrix.rows() > 0) {
@@ -140,7 +161,9 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
         }
 
         CVPipeResult<List<AprilTagDetection>> tagDetectionPipeResult =
-                aprilTagDetectionPipe.run(frame.processedImage);
+                useGpuDetector
+                        ? gpuDetectionPipe.run(frame.processedImage)
+                        : aprilTagDetectionPipe.run(frame.processedImage);
         sumPipeNanosElapsed += tagDetectionPipeResult.nanosElapsed;
 
         List<AprilTagDetection> detections = tagDetectionPipeResult.output;
@@ -253,6 +276,7 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
     @Override
     public void release() {
         aprilTagDetectionPipe.release();
+        if (gpuDetectionPipe != null) gpuDetectionPipe.release();
         singleTagPoseEstimatorPipe.release();
         super.release();
     }

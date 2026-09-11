@@ -34,6 +34,8 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
     public int decisionMargin = 35;
     public boolean doMultiTarget = false;
     public boolean doSingleTargetAlways = false;
+    // Use the GPU detector (photon-gpu, NVIDIA Jetson) when it is installed
+    public boolean gpuDetector = false;
 
     // 3d settings
 
@@ -57,6 +59,7 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
         result = prime * result + (int) (temp ^ (temp >>> 32));
         result = prime * result + threads;
         result = prime * result + (debug ? 1231 : 1237);
+        result = prime * result + (gpuDetector ? 1231 : 1237);
         result = prime * result + (refineEdges ? 1231 : 1237);
         result = prime * result + numIterations;
         result = prime * result + hammingDist;
@@ -83,6 +86,7 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
         if (decisionMargin != other.decisionMargin) return false;
         if (doMultiTarget != other.doMultiTarget) return false;
         if (doSingleTargetAlways != other.doSingleTargetAlways) return false;
+        if (gpuDetector != other.gpuDetector) return false;
         return true;
     }
 }
