@@ -1,8 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <span>
 #include <iostream>
+#include <sstream>
+#include <string>
 #include <cassert>
 #include <vector>
 
@@ -24,10 +27,31 @@
 // CHECKs that a cuda method returned success.
 // TODO(austin): This will not handle if and else statements quite right, fix if
 // we care.
-#define CHECK_CUDA(condition)                                             \
-  if (auto c = condition)                                                 \
-  LOG(FATAL) << "Check failed: " #condition " (" << cudaGetErrorString(c) \
-             << ") "
+// photon-gpu: failures are counted (frc971::apriltag::cuda_check_failures)
+// so a caller can tell a frame's results are not to be trusted, and only the
+// first few are printed, to stderr. Anything streamed after the CHECK_CUDA
+// (the stage name) is part of the report.
+namespace frc971::apriltag {
+extern std::atomic<long> cuda_check_failures;
+void ReportCudaCheckFailure(const char *condition, cudaError_t err, const std::string &message);
+class CudaCheckFailure {
+ public:
+  CudaCheckFailure(const char *condition, cudaError_t err) : condition_(condition), err_(err) {}
+  ~CudaCheckFailure() { ReportCudaCheckFailure(condition_, err_, message_.str()); }
+  template <typename T>
+  CudaCheckFailure &operator<<(const T &v) {
+    message_ << v;
+    return *this;
+  }
+
+ private:
+  const char *condition_;
+  cudaError_t err_;
+  std::ostringstream message_;
+};
+}  // namespace frc971::apriltag
+#define CHECK_CUDA(condition) \
+  if (auto c = condition) frc971::apriltag::CudaCheckFailure(#condition, c)
 
 namespace frc971::apriltag {
 

@@ -22,4 +22,22 @@ the note in `src/GpuAprilTagJNI.cc`).
 Local modifications to the vendored 971 sources (all marked `photon-gpu:` in
 the code): `transform_output_iterator.h` random access for CCCL 3;
 `971apriltag.cu` `DetectGrayHost()` decodes from the caller's host image
-instead of copying the grey image back from the device.
+instead of copying the grey image back from the device; `line_fit_filter.cu`
+`FitLines()`/`FitQuads()` skip the launch when there are no blob points or
+candidate blobs (a 0-block grid is a launch error that the next CUDA call
+reported as "invalid device ordinal", on every frame without something
+tag-like in view); `cuda.h`/`cuda.cc` `CHECK_CUDA` counts failures instead
+of printing each one.
+
+## Health
+
+- `build.sh` runs `photongpu-selftest` on the freshly built library (a
+  tagless synthetic frame, and `PHOTONGPU_SELFTEST_FRAME=<raw grey
+  1920x1200>` for a frame with tags) and installs only if no CUDA call
+  fails. The installed copy is `/opt/photonvision/bin/photongpu-selftest
+  [w h [frame.raw]]`.
+- `GpuAprilTagJNI.detect()` returns null for a frame during which a CUDA
+  call failed (`AprilTagDetectionGpuPipe` drops the frame and logs, without
+  flooding); `GpuAprilTagJNI.cudaFailures()` is the process-wide count.
+- `PHOTONGPU_SYNC=1` in the environment synchronises and checks after every
+  stage (the upstream `--sync` flag), naming the failing stage. Slow.

@@ -82,10 +82,19 @@ public class GpuAprilTagJNI {
     /**
      * Detect tags in an 8-bit grey image described like a cv::Mat.
      *
-     * @return detections in raw pixel coordinates; corners refined on the full-resolution image
+     * @return detections in raw pixel coordinates; corners refined on the full-resolution image; null
+     *     if a CUDA call failed during this frame (its results are discarded; see {@link
+     *     #cudaFailures()})
      */
     public static native AprilTagDetection[] detect(
             long handle, long dataPtr, int width, int height, long step);
+
+    /**
+     * Number of CUDA calls that have failed in this process since the library was loaded (all
+     * detectors). A healthy detector never advances it; the first few failures are printed to stderr
+     * by the native side.
+     */
+    public static native long cudaFailures();
 
     public static native void destroy(long handle);
 }

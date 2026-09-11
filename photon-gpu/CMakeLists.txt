@@ -47,14 +47,30 @@ target_include_directories(photongpu PRIVATE
   ${CUDAToolkit_INCLUDE_DIRS} ${CUDAToolkit_INCLUDE_DIRS}/cccl
   ${JNI_INCLUDE_DIRS})
 # jni.h only; the library never calls into the JVM beyond what JNI itself provides
+# bisect switches (all default to the production configuration)
+option(PHOTONGPU_HIDDEN "compile with -fvisibility=hidden" ON)
+option(PHOTONGPU_NDEBUG "define NDEBUG" ON)
+option(PHOTONGPU_CUDART_STATIC "link cudart statically" ON)
+set(VIS $<$<BOOL:${PHOTONGPU_HIDDEN}>:-fvisibility=hidden>)
 target_compile_options(photongpu PRIVATE
-  $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr -Xcompiler=-Wno-psabi -Xcompiler=-fvisibility=hidden>
-  $<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi -fvisibility=hidden>
-  $<$<COMPILE_LANGUAGE:C>:-fvisibility=hidden -Wno-unused-result>)
-target_compile_definitions(photongpu PRIVATE NDEBUG)
+  $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr -Xcompiler=-Wno-psabi $<$<BOOL:${PHOTONGPU_HIDDEN}>:-Xcompiler=-fvisibility=hidden>>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi ${VIS}>
+  $<$<COMPILE_LANGUAGE:C>:${VIS} -Wno-unused-result>)
+if(PHOTONGPU_NDEBUG)
+  target_compile_definitions(photongpu PRIVATE NDEBUG)
+endif()
 set_target_properties(photongpu PROPERTIES CUDA_SEPARABLE_COMPILATION OFF POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(photongpu PRIVATE CUDA::cudart_static Threads::Threads m)
+if(PHOTONGPU_CUDART_STATIC)
+  target_link_libraries(photongpu PRIVATE CUDA::cudart_static)
+else()
+  target_link_libraries(photongpu PRIVATE CUDA::cudart)
+endif()
+target_link_libraries(photongpu PRIVATE Threads::Threads m)
 # A missing symbol must fail the build, not the JVM at first use.
 target_link_options(photongpu PRIVATE -Wl,--no-undefined)
 
+add_executable(photongpu-selftest src/selftest.cc)
+target_link_libraries(photongpu-selftest PRIVATE photongpu)
+
 install(TARGETS photongpu LIBRARY DESTINATION lib)
+install(TARGETS photongpu-selftest RUNTIME DESTINATION bin)

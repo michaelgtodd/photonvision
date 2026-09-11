@@ -128,7 +128,30 @@ public class AprilTagDetectionGpuPipe
 
         AprilTagDetection[] ret =
                 GpuAprilTagJNI.detect(handle, mat.dataAddr(), mat.cols(), mat.rows(), mat.step1());
-        return ret == null ? List.of() : List.of(ret);
+        if (ret == null) {
+            reportCudaFailure();
+            return List.of();
+        }
+        return List.of(ret);
+    }
+
+    private long reportedFailures = 0;
+    private long droppedFrames = 0;
+
+    /** A frame was dropped because a CUDA call failed; log it without flooding. */
+    private void reportCudaFailure() {
+        droppedFrames++;
+        long failures = GpuAprilTagJNI.cudaFailures();
+        // the first, then every 1000 dropped frames
+        if (droppedFrames == 1 || droppedFrames % 1000 == 0 || failures - reportedFailures > 1000) {
+            logger.error(
+                    "GPU AprilTag detector: CUDA call failed, frame dropped ("
+                            + droppedFrames
+                            + " frames dropped by this pipe, "
+                            + failures
+                            + " CUDA failures in this process; see stderr)");
+            reportedFailures = failures;
+        }
     }
 
     @Override

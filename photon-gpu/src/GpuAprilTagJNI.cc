@@ -22,7 +22,6 @@
 // from different threads. The object construction follows Team 4143's
 // GpuDetectorJNI (Apache-2.0).
 
-#include <cuda_runtime.h>
 #include <jni.h>
 
 #include <cstdint>
@@ -113,12 +112,12 @@ JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_create(
     return 0;
   }
 
-  // Before the first CUDA context is created: make stream synchronisation block
-  // on the GPU instead of spinning a CPU core while it works. The detector
-  // synchronises once per frame; with four cameras the spin was a visible
-  // share of the CPU budget. Latency cost is a wake-up, tens of microseconds.
-  static std::once_flag once;
-  std::call_once(once, [] { cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync); });
+  // Note: cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync) was tried here to
+  // stop the per-frame stream synchronisation spinning a core. Measured in the
+  // harness it saved nothing (the detector's CPU time is launch/driver
+  // overhead, not the wait), and inside the JVM, with four detectors created
+  // from four threads, it left every later CUDA call failing with "invalid
+  // device ordinal". Do not reintroduce it without that test.
 
   const char *fam = env->GetStringUTFChars(family, nullptr);
   std::string famName = fam ? fam : "tag36h11";
@@ -183,7 +182,13 @@ JNIEXPORT jobjectArray JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_detect(
     image = h->staging.data();
   }
 
+  const long failures_before = frc971::apriltag::cuda_check_failures.load();
   h->gpu->DetectGrayHost(image);
+  if (frc971::apriltag::cuda_check_failures.load() != failures_before) {
+    // A CUDA call failed during this frame: its results are not trustworthy.
+    // The frame is dropped; the Java side reads cudaFailures() to report it.
+    return nullptr;
+  }
   const zarray_t *dets = h->gpu->Detections();
   const int n = dets ? zarray_size(dets) : 0;
 
@@ -204,6 +209,10 @@ JNIEXPORT jobjectArray JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_detect(
  * Method:    destroy
  * Signature: (J)V
  */
+JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_cudaFailures(JNIEnv *, jclass) {
+  return frc971::apriltag::cuda_check_failures.load();
+}
+
 JNIEXPORT void JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_destroy(JNIEnv *, jclass, jlong handle) {
   auto *h = reinterpret_cast<Handle *>(handle);
   if (!h) return;
@@ -216,6 +225,46 @@ JNIEXPORT void JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_destroy(JNIEnv *
     else tag36h11_destroy(h->family);
   }
   delete h;
+}
+
+/*
+ * Self-test without a JVM: build a detector for width x height, run one
+ * synthetic frame through it, and return the number of CUDA check failures
+ * (0 = healthy). Exported for photongpu-selftest, which runs the exact library
+ * PhotonVision loads.
+ */
+__attribute__((visibility("default"))) long photongpu_selftest(int width, int height, int decimate,
+                                                                const uint8_t *frame_in, int *ndet_out) {
+  const long before = frc971::apriltag::cuda_check_failures.load();
+  apriltag_family_t *fam = tag36h11_create();
+  apriltag_detector_t *td = apriltag_detector_create();
+  apriltag_detector_add_family_bits(td, fam, 1);
+  td->nthreads = 1;
+  td->wp = workerpool_create(1);
+  td->quad_decimate = decimate;
+  td->qtp.min_white_black_diff = 5;
+  frc971::apriltag::CameraMatrix cam{1000.0, width / 2.0, 1000.0, height / 2.0};
+  frc971::apriltag::DistCoeffs dist{0, 0, 0, 0, 0};
+  auto *gpu = new frc971::apriltag::GpuDetector(width, height, td, cam, dist, decimate);
+  std::vector<uint8_t> frame(static_cast<size_t>(width) * height, 128);
+  if (frame_in) {
+    std::copy(frame_in, frame_in + frame.size(), frame.begin());
+  } else {
+    // a bright square with a dark border so the pipeline has a blob to work on
+    for (int y = height / 3; y < 2 * height / 3; y++)
+      for (int x = width / 3; x < 2 * width / 3; x++) frame[static_cast<size_t>(y) * width + x] = 230;
+  }
+  int ndet = 0;
+  for (int i = 0; i < 3; i++) {
+    gpu->DetectGrayHost(frame.data());
+    const zarray_t *d = gpu->Detections();
+    ndet = d ? zarray_size(d) : 0;
+  }
+  if (ndet_out) *ndet_out = ndet;
+  delete gpu;
+  apriltag_detector_destroy(td);
+  tag36h11_destroy(fam);
+  return frc971::apriltag::cuda_check_failures.load() - before;
 }
 
 }  // extern "C"

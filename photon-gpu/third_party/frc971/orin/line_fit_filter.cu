@@ -604,6 +604,12 @@ void FitLines(
   constexpr size_t kThreads = 128;
   const size_t kBlocks = (points + kPointsPerBlock - 2 * kErrorsBuffer - 1) /
                          (kPointsPerBlock - 2 * kErrorsBuffer);
+  // photon-gpu: a frame with no blob points (nothing tag-like in view) would
+  // launch a 0-block grid, which is a launch error that the next CUDA call
+  // then reports. Nothing to fit.
+  if (kBlocks == 0) {
+    return;
+  }
 
   /*VLOG(1) << "Spawning with " << kThreads << " threads, and " << kBlocks
           << " blocks for " << num_extents << " blob_ids and " << points
@@ -1213,6 +1219,10 @@ void FitQuads(
   CHECK_EQ(nmaxima, kNMaxima)
       //<< ": Kernel is compiled and optimized for a fixed nmaxima, please "
       //   "recompile if you want to change it.";
+  // photon-gpu: see FitLines; no candidate blobs means no launch.
+  if (kBlocks == 0) {
+    return;
+  }
   DoFitQuads<<<kBlocks, kThreads, 0, stream->get()>>>(
       peaks_device, peak_extents, line_fit_points_device,
       selected_extents_device, max_line_fit_mse, cos_critical_rad,
