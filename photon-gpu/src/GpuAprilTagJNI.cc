@@ -23,6 +23,9 @@
 // GpuDetectorJNI (Apache-2.0).
 
 #include <jni.h>
+#include <malloc.h>
+#include <cstdio>
+#include <cstdlib>
 
 #include <cstdint>
 #include <cstring>
@@ -228,13 +231,21 @@ JNIEXPORT void JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_destroy(JNIEnv *
 }
 
 /*
- * Self-test without a JVM: build a detector for width x height, run one
- * synthetic frame through it, and return the number of CUDA check failures
- * (0 = healthy). Exported for photongpu-selftest, which runs the exact library
- * PhotonVision loads.
+ * Self-test without a JVM: build a detector for width x height, run `frames`
+ * frames (the caller's grey image, or a synthetic square that contains no
+ * tag) and report the number of CUDA check failures and the growth of the
+ * malloc heap between the 2nd frame and the last (a per-frame leak shows up
+ * as growth proportional to `frames`). Exported for photongpu-selftest,
+ * which runs the exact library PhotonVision loads.
  */
+static long HeapInUseBytes() {
+  struct mallinfo2 mi = mallinfo2();
+  return static_cast<long>(mi.uordblks) + static_cast<long>(mi.hblkhd);
+}
+
 __attribute__((visibility("default"))) long photongpu_selftest(int width, int height, int decimate,
-                                                                const uint8_t *frame_in, int *ndet_out) {
+                                                                const uint8_t *frame_in, int frames,
+                                                                int *ndet_out, long *heap_growth_out) {
   const long before = frc971::apriltag::cuda_check_failures.load();
   apriltag_family_t *fam = tag36h11_create();
   apriltag_detector_t *td = apriltag_detector_create();
@@ -255,12 +266,16 @@ __attribute__((visibility("default"))) long photongpu_selftest(int width, int he
       for (int x = width / 3; x < 2 * width / 3; x++) frame[static_cast<size_t>(y) * width + x] = 230;
   }
   int ndet = 0;
-  for (int i = 0; i < 3; i++) {
+  long heap_after_warmup = 0;
+  if (frames < 3) frames = 3;
+  for (int i = 0; i < frames; i++) {
     gpu->DetectGrayHost(frame.data());
     const zarray_t *d = gpu->Detections();
     ndet = d ? zarray_size(d) : 0;
+    if (i == 1) heap_after_warmup = HeapInUseBytes();
   }
   if (ndet_out) *ndet_out = ndet;
+  if (heap_growth_out) *heap_growth_out = HeapInUseBytes() - heap_after_warmup;
   delete gpu;
   apriltag_detector_destroy(td);
   tag36h11_destroy(fam);

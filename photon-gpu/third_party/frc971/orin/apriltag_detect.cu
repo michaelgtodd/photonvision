@@ -615,6 +615,11 @@ void GpuDetector::QuadDecodeTask(void *_u) {
 
     quad_decode_index(td, &quad_original, im, task->im_samples,
                       task->detections);
+    // photon-gpu: quad_decode_index() computes the homographies on this
+    // stack quad (the CPU detector frees them with its quad list); without
+    // this, two 3x3 matrices leak per quad candidate, ~13 KB per frame.
+    matd_destroy(quad_original.H);
+    matd_destroy(quad_original.Hinv);
   }
 }
 

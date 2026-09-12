@@ -27,15 +27,19 @@ instead of copying the grey image back from the device; `line_fit_filter.cu`
 candidate blobs (a 0-block grid is a launch error that the next CUDA call
 reported as "invalid device ordinal", on every frame without something
 tag-like in view); `cuda.h`/`cuda.cc` `CHECK_CUDA` counts failures instead
-of printing each one.
+of printing each one; `apriltag_detect.cu` `QuadDecodeTask()` frees the
+homographies `quad_decode_index()` computes on its stack quad (the CPU
+detector frees them with its quad list; here they leaked ~13 KB per frame,
+4 GB an hour on four cameras, which rebooted the Jetson hourly).
 
 ## Health
 
-- `build.sh` runs `photongpu-selftest` on the freshly built library (a
-  tagless synthetic frame, and `PHOTONGPU_SELFTEST_FRAME=<raw grey
-  1920x1200>` for a frame with tags) and installs only if no CUDA call
-  fails. The installed copy is `/opt/photonvision/bin/photongpu-selftest
-  [w h [frame.raw]]`.
+- `build.sh` runs `photongpu-selftest` on the freshly built library (300
+  frames of a tagless synthetic frame, and `PHOTONGPU_SELFTEST_FRAME=<raw
+  grey 1920x1200>` for a frame with tags) and installs only if no CUDA call
+  fails and the malloc heap does not grow with the frame count. The
+  installed copy is `/opt/photonvision/bin/photongpu-selftest [w h
+  [frame.raw|- [frames]]]`.
 - `GpuAprilTagJNI.detect()` returns null for a frame during which a CUDA
   call failed (`AprilTagDetectionGpuPipe` drops the frame and logs, without
   flooding); `GpuAprilTagJNI.cudaFailures()` is the process-wide count.

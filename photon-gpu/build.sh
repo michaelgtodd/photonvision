@@ -21,9 +21,9 @@ sudo -n install -d "$PREFIX/lib"
 # The self-test runs the freshly built library through one detector before
 # anything is installed; a CUDA failure here means PhotonVision would run
 # with a broken detector.
-LD_LIBRARY_PATH="$HERE/build" "$HERE/build/photongpu-selftest" 1920 1200 || { echo "self-test FAILED (tagless frame); not installing"; exit 1; }
+LD_LIBRARY_PATH="$HERE/build" "$HERE/build/photongpu-selftest" 1920 1200 - 300 || { echo "self-test FAILED (tagless frame); not installing"; exit 1; }
 if [ -n "${PHOTONGPU_SELFTEST_FRAME:-}" ]; then
-  LD_LIBRARY_PATH="$HERE/build" "$HERE/build/photongpu-selftest" 1920 1200 "$PHOTONGPU_SELFTEST_FRAME" || { echo "self-test FAILED (frame); not installing"; exit 1; }
+  LD_LIBRARY_PATH="$HERE/build" "$HERE/build/photongpu-selftest" 1920 1200 "$PHOTONGPU_SELFTEST_FRAME" 300 || { echo "self-test FAILED (frame); not installing"; exit 1; }
 fi
 sudo -n install -m 0644 "$HERE/build/libphotongpu.so" "$PREFIX/lib/libphotongpu.so"
 sudo -n install -d "$PREFIX/bin" && sudo -n install -m 0755 "$HERE/build/photongpu-selftest" "$PREFIX/bin/photongpu-selftest"

@@ -93,7 +93,9 @@ public class FarFieldSearch implements AutoCloseable {
             busy.set(false);
             return false;
         }
-        Mat copy = grey.submat(r).clone();
+        Mat view = grey.submat(r);
+        Mat copy = view.clone();
+        view.release();
         executor.submit(
                 () -> {
                     long t0 = System.nanoTime();
