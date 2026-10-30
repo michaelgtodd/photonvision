@@ -29,6 +29,7 @@ import org.opencv.imgproc.Imgproc;
 import org.photonvision.common.logging.LogGroup;
 import org.photonvision.common.logging.Logger;
 import org.photonvision.jni.CscoreExtras;
+import org.photonvision.jni.V4l2LatestFrame;
 import org.photonvision.vision.opencv.CVMat;
 import org.photonvision.vision.processes.VisionSourceSettables;
 
@@ -44,6 +45,16 @@ public class USBFrameProvider extends CpuImageProcessor {
     private Runnable connectedCallback;
 
     private long lastTime = 0;
+
+    /**
+     * Y16 sources are captured newest-frame-only on cscore's own descriptor (V4l2LatestFrame)
+     * unless PHOTONVISION_Y16_LATEST_FRAME=0: cscore copies every frame it dequeues, and at sensor
+     * rates well above what the pipeline processes that copy dominated the CPU.
+     */
+    private static final boolean Y16_LATEST_FRAME =
+            !"0".equals(System.getenv("PHOTONVISION_Y16_LATEST_FRAME"));
+
+    private long latestFrame = 0;
 
     @SuppressWarnings("SpellCheckingInspection")
     public USBFrameProvider(
@@ -152,6 +163,9 @@ public class USBFrameProvider extends CpuImageProcessor {
      * 8 bits, and replicate to BGR for the rest of the pipeline.
      */
     private CapturedFrame grabY16(VideoMode mode) {
+        if (Y16_LATEST_FRAME) {
+            return grabY16Latest(mode);
+        }
         try (var frame = new RawFrame()) {
             frame.setInfo(mode.width, mode.height, mode.width * 2, PixelFormat.kY16);
 
@@ -206,6 +220,38 @@ public class USBFrameProvider extends CpuImageProcessor {
         }
     }
 
+    /**
+     * The newest frame from a Y16 source, as 8-bit grey, without cscore copying every frame.
+     *
+     * <p>Disabling the sink stops cscore streaming (it keeps the device open, its buffers allocated
+     * and its controls working); V4l2LatestFrame then streams on that same descriptor, keeps only
+     * the newest filled buffer and converts it here. Frames the pipeline does not get to are
+     * requeued untouched.
+     */
+    private CapturedFrame grabY16Latest(VideoMode mode) {
+        if (latestFrame == 0) {
+            cvSink.setEnabled(false);
+            latestFrame = V4l2LatestFrame.create(camera.getPath(), mode.width, mode.height);
+            logger.info("Y16: newest-frame capture on cscore's descriptor for " + camera.getPath());
+        }
+        var gray = new Mat();
+        long captureTimeUs =
+                V4l2LatestFrame.grab(
+                        latestFrame, gray.getNativeObjAddr(), CSCORE_DEFAULT_FRAME_TIMEOUT);
+        if (captureTimeUs == 0) {
+            gray.release();
+            logger.error("No new Y16 frame: " + V4l2LatestFrame.lastError(latestFrame));
+            return new CapturedFrame(new CVMat(), settables.getFrameStaticProperties(), 0);
+        }
+        var bgr = new Mat();
+        Imgproc.cvtColor(gray, bgr, Imgproc.COLOR_GRAY2BGR);
+        return new CapturedFrame(
+                new CVMat(bgr),
+                new CVMat(gray),
+                settables.getFrameStaticProperties(),
+                captureTimeUs * 1000);
+    }
+
     @Override
     public String getName() {
         return "USBFrameProvider - " + cvSink.getName();
@@ -213,6 +259,10 @@ public class USBFrameProvider extends CpuImageProcessor {
 
     @Override
     public void release() {
+        if (latestFrame != 0) {
+            V4l2LatestFrame.destroy(latestFrame);
+            latestFrame = 0;
+        }
         CameraServer.removeServer(cvSink.getName());
         cvSink.close();
         cvSink = null;
