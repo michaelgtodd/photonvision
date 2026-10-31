@@ -57,6 +57,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <utility>
 #include <string>
 #include <thread>
 #include <vector>
@@ -64,7 +65,103 @@
 #include <opencv2/core/mat.hpp>
 #include <wpi/timestamp.h>
 
+// Zero-copy hand-off to CUDA, provided by libphotongpu (photon-gpu's
+// src/GpuCapture.h declares the same struct; the version field guards it).
+// This library does not link CUDA: the GPU library passes its functions in
+// through V4l2LatestFrame.setGpu(GpuAprilTagJNI.captureOps()).
+extern "C" {
+typedef struct PhotonGpuCaptureOps {
+  uint32_t version;
+  void* (*pinned_alloc)(size_t bytes);
+  void (*pinned_free)(void* p);
+  int (*narrow_y16)(const void* capture, size_t capture_length, void* out, int width, int height);
+  void (*forget_buffer)(const void* capture);
+} PhotonGpuCaptureOps;
+}
+
 namespace {
+
+constexpr uint32_t kGpuOpsVersion = 1;
+
+// cv::Mat allocator over pinned host buffers from the GPU library, pooled by
+// size. Frames grabbed through it can go to the GPU detector without a copy;
+// OpenCV's refcount returns a buffer to the pool when the last Mat on it (Java
+// releases frames from several threads) lets go. Created once, never freed:
+// frames can outlive any one camera's Grabber.
+class PinnedPool final : public cv::MatAllocator {
+ public:
+  explicit PinnedPool(const PhotonGpuCaptureOps* ops) : ops_(ops) {}
+
+  cv::UMatData* allocate(int dims, const int* sizes, int type, void* data0, size_t* step,
+                         cv::AccessFlag flags, cv::UMatUsageFlags usageFlags) const override {
+    if (data0) {
+      return cv::Mat::getStdAllocator()->allocate(dims, sizes, type, data0, step, flags, usageFlags);
+    }
+    size_t total = CV_ELEM_SIZE(type);
+    for (int i = dims - 1; i >= 0; i--) {
+      if (step) {
+        step[i] = total;
+      }
+      total *= static_cast<size_t>(sizes[i]);
+    }
+    void* p = Take(total);
+    if (!p) {
+      return cv::Mat::getStdAllocator()->allocate(dims, sizes, type, data0, step, flags, usageFlags);
+    }
+    auto* u = new cv::UMatData(this);
+    u->data = u->origdata = static_cast<uchar*>(p);
+    u->size = total;
+    return u;
+  }
+
+  bool allocate(cv::UMatData*, cv::AccessFlag, cv::UMatUsageFlags) const override {
+    return false;
+  }
+
+  void deallocate(cv::UMatData* u) const override {
+    if (!u) {
+      return;
+    }
+    Give(u->origdata, u->size);
+    delete u;
+  }
+
+ private:
+  void* Take(size_t n) const {
+    {
+      std::scoped_lock lock{mutex_};
+      for (size_t i = 0; i < free_.size(); ++i) {
+        if (free_[i].second == n) {
+          void* p = free_[i].first;
+          free_.erase(free_.begin() + static_cast<long>(i));
+          return p;
+        }
+      }
+    }
+    return ops_->pinned_alloc(n);
+  }
+
+  void Give(void* p, size_t n) const {
+    {
+      std::scoped_lock lock{mutex_};
+      if (free_.size() < kKeep) {
+        free_.emplace_back(p, n);
+        return;
+      }
+    }
+    ops_->pinned_free(p);
+  }
+
+  // Enough for every frame in flight on four cameras (vision loop, stream
+  // thread, a second feed) without allocating in steady state.
+  static constexpr size_t kKeep = 24;
+  const PhotonGpuCaptureOps* ops_;
+  mutable std::mutex mutex_;
+  mutable std::vector<std::pair<void*, size_t>> free_;
+};
+
+PinnedPool* g_pinnedPool = nullptr;
+std::once_flag g_pinnedPoolOnce;
 
 int Xioctl(int fd, unsigned long req, void* arg) {
   int r;
@@ -98,6 +195,8 @@ struct Grabber {
   int inUse = -1;  // buffer grab() is converting
   uint64_t returnedSeq = 0;
   std::string error;
+  // Set by V4l2LatestFrame.setGpu: convert on the GPU into pinned frames.
+  std::atomic<const PhotonGpuCaptureOps*> gpu{nullptr};
 };
 
 int64_t MonotonicUs() {
@@ -145,9 +244,12 @@ int FindDeviceFd(const std::string& device) {
   return found;
 }
 
-void Unmap(std::vector<Buffer>& buffers) {
+void Unmap(std::vector<Buffer>& buffers, const PhotonGpuCaptureOps* gpu = nullptr) {
   for (auto& b : buffers) {
     if (b.data) {
+      if (gpu) {
+        gpu->forget_buffer(b.data);  // drop its CUDA registration first
+      }
       munmap(b.data, b.length);
     }
   }
@@ -162,7 +264,7 @@ void Detach(Grabber& g, const char* why) {
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     Xioctl(g.fd, VIDIOC_STREAMOFF, &type);
   }
-  Unmap(g.buffers);
+  Unmap(g.buffers, g.gpu.load());
   g.fd = -1;
   g.streaming = false;
   g.latest = -1;
@@ -358,6 +460,28 @@ static void NarrowTop8(const uint16_t* in, uint8_t* out, size_t n) {
 
 /*
  * Class:     org_photonvision_jni_V4l2LatestFrame
+ * Method:    setGpu
+ * Signature: (JJ)Z
+ *
+ * Hand the grabber libphotongpu's capture ops (GpuAprilTagJNI.captureOps()):
+ * from then on grab() converts on the GPU into pinned frames.
+ */
+JNIEXPORT jboolean JNICALL
+Java_org_photonvision_jni_V4l2LatestFrame_setGpu
+  (JNIEnv*, jclass, jlong handle, jlong opsPtr)
+{
+  auto* g = reinterpret_cast<Grabber*>(handle);
+  auto* ops = reinterpret_cast<const PhotonGpuCaptureOps*>(opsPtr);
+  if (!g || !ops || ops->version != kGpuOpsVersion) {
+    return false;
+  }
+  std::call_once(g_pinnedPoolOnce, [ops] { g_pinnedPool = new PinnedPool(ops); });
+  g->gpu.store(ops);
+  return true;
+}
+
+/*
+ * Class:     org_photonvision_jni_V4l2LatestFrame
  * Method:    grab
  * Signature: (JJD)J
  */
@@ -388,9 +512,22 @@ Java_org_photonvision_jni_V4l2LatestFrame_grab
   // 10 bits MSB-aligned in 16: keep the top 8.
   bool ok = buf.length >= static_cast<size_t>(g->width) * g->height * 2;
   if (ok) {
+    const PhotonGpuCaptureOps* gpu = g->gpu.load();
+    if (gpu && g_pinnedPool) {
+      out->allocator = g_pinnedPool;
+    }
     out->create(g->height, g->width, CV_8UC1);
-    NarrowTop8(static_cast<const uint16_t*>(buf.data), out->ptr<uint8_t>(),
-               static_cast<size_t>(g->width) * g->height);
+    // Later reallocations of this header (stream resizing and the like) use
+    // the default allocator; this buffer still goes back to the pool.
+    out->allocator = nullptr;
+    bool converted = false;
+    if (gpu && out->u && out->u->currAllocator == g_pinnedPool && out->isContinuous()) {
+      converted = gpu->narrow_y16(buf.data, buf.length, out->data, g->width, g->height) == 0;
+    }
+    if (!converted) {
+      NarrowTop8(static_cast<const uint16_t*>(buf.data), out->ptr<uint8_t>(),
+                 static_cast<size_t>(g->width) * g->height);
+    }
   }
 
   lock.lock();

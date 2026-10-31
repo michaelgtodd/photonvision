@@ -806,6 +806,29 @@ void GpuDetector::DetectGrayHost(uint8_t *image) {
   DetectGray2(image);
 }
 
+void GpuDetector::DetectGrayDirect(uint8_t *image) {
+  start_time = std::chrono::steady_clock::now();
+  start_.Record(&stream_);
+  after_image_memcpy_to_device_.Record(&stream_);
+  if(decimate_ == 2) {
+      CudaDecimate(
+      image,
+      decimated_image_device_.get(), unfiltered_minmax_image_device_.get(),
+      minmax_image_device_.get(), thresholded_image_device_.get(), width_,
+      height_, tag_detector_->qtp.min_white_black_diff, &stream_);
+      after_threshold_.Record(&stream_);
+  } else if(decimate_ == 1) {
+      CudaNoDecimate(
+      image,
+      decimated_image_device_.get(), unfiltered_minmax_image_device_.get(),
+      minmax_image_device_.get(), thresholded_image_device_.get(), width_,
+      height_, tag_detector_->qtp.min_white_black_diff, &stream_);
+      after_threshold_.Record(&stream_);
+  } else CHECK(decimate_ == 2 || decimate_ == 1);
+  after_memcpy_gray_.Record(&stream_);
+  DetectGray2(image);
+}
+
 void GpuDetector::DetectGray(uint8_t *image) {
   start_time = std::chrono::steady_clock::now();
   start_.Record(&stream_);

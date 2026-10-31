@@ -29,6 +29,7 @@ import org.opencv.imgproc.Imgproc;
 import org.photonvision.common.logging.LogGroup;
 import org.photonvision.common.logging.Logger;
 import org.photonvision.jni.CscoreExtras;
+import org.photonvision.jni.GpuAprilTagJNI;
 import org.photonvision.jni.V4l2LatestFrame;
 import org.photonvision.vision.opencv.CVMat;
 import org.photonvision.vision.processes.VisionSourceSettables;
@@ -233,6 +234,14 @@ public class USBFrameProvider extends CpuImageProcessor {
             cvSink.setEnabled(false);
             latestFrame = V4l2LatestFrame.create(camera.getPath(), mode.width, mode.height);
             logger.info("Y16: newest-frame capture on cscore's descriptor for " + camera.getPath());
+            // Convert on the GPU into pinned frames the GPU detector reads in place, unless
+            // PHOTONVISION_Y16_GPU_CAPTURE=0 or there is no GPU library.
+            if (!"0".equals(System.getenv("PHOTONVISION_Y16_GPU_CAPTURE"))
+                    && GpuAprilTagJNI.isAvailable()) {
+                boolean on = V4l2LatestFrame.setGpu(latestFrame, GpuAprilTagJNI.captureOps());
+                logger.info(
+                        "Y16: GPU conversion " + (on ? "on" : "unavailable") + " for " + camera.getPath());
+            }
         }
         var gray = new Mat();
         long captureTimeUs =

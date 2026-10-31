@@ -43,6 +43,16 @@ public class V4l2LatestFrame {
      */
     public static native long grab(long handle, long matPtr, double timeoutSeconds);
 
+    /**
+     * Convert on the GPU from now on: grab() then returns frames in pinned host memory, which
+     * the GPU AprilTag detector reads in place.
+     *
+     * @param handle From {@link #create}.
+     * @param captureOps GpuAprilTagJNI.captureOps() (photon-core).
+     * @return Whether the ops were accepted.
+     */
+    public static native boolean setGpu(long handle, long captureOps);
+
     /** The most recent attach/capture problem, for logging; empty if none. */
     public static native String lastError(long handle);
 

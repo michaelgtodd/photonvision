@@ -210,6 +210,15 @@ class GpuDetector {
 
   void DecodeTags(uint8_t *image);
 
+ public:
+  // photon-gpu: detect on an 8-bit grey image the GPU can read in place
+  // (pinned host or managed memory): no host-to-device copy, and the CPU
+  // decode reads the same pointer. Unlike DetectGray, no managed-memory
+  // attach calls, which fail (and poison cudaGetLastError) on pinned memory.
+  void DetectGrayDirect(uint8_t *image);
+
+ private:
+
   static void QuadDecodeTask(void *_u);
 
   // Creates a GPU image wrapped around the provided memory.

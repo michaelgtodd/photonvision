@@ -22,6 +22,7 @@
 // from different threads. The object construction follows Team 4143's
 // GpuDetectorJNI (Apache-2.0).
 
+#include <cuda_runtime.h>
 #include <jni.h>
 #include <malloc.h>
 #include <cstdio>
@@ -185,8 +186,24 @@ JNIEXPORT jobjectArray JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_detect(
     image = h->staging.data();
   }
 
+  // A frame already in GPU-visible memory (the pinned frames V4l2LatestFrame
+  // returns when given captureOps()) is read in place; anything else is
+  // copied to the device first.
+  bool direct = false;
+  if (image == src) {
+    cudaPointerAttributes attr;
+    if (cudaPointerGetAttributes(&attr, image) == cudaSuccess) {
+      direct = attr.type == cudaMemoryTypeHost || attr.type == cudaMemoryTypeManaged;
+    } else {
+      cudaGetLastError();
+    }
+  }
   const long failures_before = frc971::apriltag::cuda_check_failures.load();
-  h->gpu->DetectGrayHost(image);
+  if (direct) {
+    h->gpu->DetectGrayDirect(image);
+  } else {
+    h->gpu->DetectGrayHost(image);
+  }
   if (frc971::apriltag::cuda_check_failures.load() != failures_before) {
     // A CUDA call failed during this frame: its results are not trustworthy.
     // The frame is dropped; the Java side reads cudaFailures() to report it.
@@ -268,14 +285,26 @@ __attribute__((visibility("default"))) long photongpu_selftest(int width, int he
   int ndet = 0;
   long heap_after_warmup = 0;
   if (frames < 3) frames = 3;
+  // PHOTONGPU_SELFTEST_PINNED=1: the frame in pinned host memory through
+  // DetectGrayDirect, the zero-copy capture path.
+  uint8_t *pinned = nullptr;
+  if (getenv("PHOTONGPU_SELFTEST_PINNED") &&
+      cudaMallocHost(reinterpret_cast<void **>(&pinned), frame.size()) == cudaSuccess) {
+    std::copy(frame.begin(), frame.end(), pinned);
+  }
   for (int i = 0; i < frames; i++) {
-    gpu->DetectGrayHost(frame.data());
+    if (pinned) {
+      gpu->DetectGrayDirect(pinned);
+    } else {
+      gpu->DetectGrayHost(frame.data());
+    }
     const zarray_t *d = gpu->Detections();
     ndet = d ? zarray_size(d) : 0;
     if (i == 1) heap_after_warmup = HeapInUseBytes();
   }
   if (ndet_out) *ndet_out = ndet;
   if (heap_growth_out) *heap_growth_out = HeapInUseBytes() - heap_after_warmup;
+  if (pinned) cudaFreeHost(pinned);
   delete gpu;
   apriltag_detector_destroy(td);
   tag36h11_destroy(fam);

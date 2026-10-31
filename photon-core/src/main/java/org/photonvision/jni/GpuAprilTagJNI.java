@@ -97,4 +97,10 @@ public class GpuAprilTagJNI {
     public static native long cudaFailures();
 
     public static native void destroy(long handle);
+
+    /**
+     * The address of libphotongpu's zero-copy capture table, for {@link V4l2LatestFrame#setGpu}.
+     * Only valid once {@link #isAvailable()} has returned true.
+     */
+    public static native long captureOps();
 }

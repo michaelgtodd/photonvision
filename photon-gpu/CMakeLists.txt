@@ -38,7 +38,7 @@ set(FRC971_SRC
   ${TP}/frc971/orin/threshold.cu
   ${TP}/frc971/orin/cuda.cc)
 
-add_library(photongpu SHARED ${APRILTAG_SRC} ${FRC971_SRC} src/GpuAprilTagJNI.cc)
+add_library(photongpu SHARED ${APRILTAG_SRC} ${FRC971_SRC} src/GpuAprilTagJNI.cc src/GpuCapture.cu)
 # The 971 sources include "frc971/orin/..." and "third_party/apriltag/..."
 # relative to the vendored tree's parent, i.e. this directory.
 target_include_directories(photongpu PRIVATE
