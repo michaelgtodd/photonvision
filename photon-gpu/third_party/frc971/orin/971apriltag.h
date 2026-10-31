@@ -217,6 +217,13 @@ class GpuDetector {
   // attach calls, which fail (and poison cudaGetLastError) on pinned memory.
   void DetectGrayDirect(uint8_t *image);
 
+  // photon-gpu: the smallest blob, in thresholded-image pixels, that makes
+  // boundary points (Team 971's code fixes 25). At full resolution sensor
+  // noise makes many small blobs; 100 there cut the detector's time by about
+  // a third on noisy frames while finding the same tags down to 16 px (bench
+  // repo experiments/apriltag-rate/results/2026-10-30-carrier-tiers.txt).
+  void SetMinBlobSize(uint32_t pixels) { min_blob_size_ = pixels > 0 ? pixels : 1; }
+
  private:
 
   static void QuadDecodeTask(void *_u);
@@ -301,6 +308,12 @@ class GpuDetector {
   // The size of each blob.  The blob size is stored at the index of the stored
   // union marker id in union_markers_device_ aboe.
   GpuMemory<uint32_t> union_markers_size_device_;
+  // Dense numbers for the blobs big enough to make boundary points, stored at
+  // the same index as their size above, so that a blob pair fits in a
+  // QuadBoundaryPoint at full resolution (see points.h).
+  GpuMemory<uint32_t> blob_ids_device_;
+  // Smallest blob that makes boundary points (SetMinBlobSize).
+  uint32_t min_blob_size_ = 25;
 
   // Full list of boundary points, densly stored but mostly zero.
   GpuMemory<QuadBoundaryPoint> union_marker_pair_device_;
@@ -357,6 +370,7 @@ class GpuDetector {
   GpuMemory<uint8_t> temp_storage_compressed_filtered_blobs_device_;
   GpuMemory<uint8_t> temp_storage_selected_extents_scan_device_;
   GpuMemory<uint8_t> temp_storage_line_fit_scan_device_;
+  GpuMemory<uint8_t> temp_storage_blob_ids_scan_device_;
 
   // Cumulative duration of april tag detection.
   std::chrono::nanoseconds execution_duration_{0};

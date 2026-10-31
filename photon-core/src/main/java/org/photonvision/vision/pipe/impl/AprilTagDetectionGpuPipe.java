@@ -35,9 +35,10 @@ import org.photonvision.vision.pipe.CVPipe;
  * with corners refined on the full-resolution image). The native detector is sized to the frame and
  * recreated when the frame size or the parameters change.
  *
- * <p>Quad finding runs at decimate 2 regardless of the pipeline's decimate setting at resolutions
- * above 1024 px (the detector's packed coordinates are sized for the half-resolution image); decode
- * and edge refinement use the full-resolution image in either case.
+ * <p>Quad finding runs at decimate 2 above 1024 px unless full resolution is asked for
+ * explicitly ({@code gpuFullResolution}): the pipeline decimate setting of 1 that existing
+ * pipelines carry would otherwise silently switch them to the far more expensive full-resolution
+ * search. Decode and edge refinement use the full-resolution image in either case.
  */
 public class AprilTagDetectionGpuPipe
         extends CVPipe<
@@ -54,11 +55,14 @@ public class AprilTagDetectionGpuPipe
             int decimate,
             int cpuThreads,
             int minWhiteBlackDiff,
+            int minBlobSize,
             boolean refineEdges,
-            float decodeSharpening) {}
+            float decodeSharpening,
+            boolean fullResolution) {}
 
     /** The decimate the detector will actually use for a frame of this size. */
-    public static int effectiveDecimate(int requested, int width, int height) {
+    public static int effectiveDecimate(int requested, int width, int height, boolean fullResolution) {
+        if (fullResolution) return 1;
         if (width > 1024 || height > 1024) return 2;
         return requested >= 2 ? 2 : 1;
     }
@@ -74,7 +78,8 @@ public class AprilTagDetectionGpuPipe
 
         releaseHandle();
         if (!GpuAprilTagJNI.isAvailable()) return false;
-        int decimate = effectiveDecimate(params.decimate(), width, height);
+        int decimate =
+                effectiveDecimate(params.decimate(), width, height, params.fullResolution());
         try {
             handle =
                     GpuAprilTagJNI.create(
@@ -83,6 +88,7 @@ public class AprilTagDetectionGpuPipe
                             decimate,
                             params.cpuThreads(),
                             params.minWhiteBlackDiff(),
+                            params.minBlobSize(),
                             params.refineEdges(),
                             params.decodeSharpening(),
                             params.family().getNativeName());

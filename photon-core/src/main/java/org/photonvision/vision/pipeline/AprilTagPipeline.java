@@ -147,9 +147,11 @@ public class AprilTagPipeline extends CVPipeline<CVPipelineResult, AprilTagPipel
                             settings.tagFamily,
                             settings.decimate,
                             settings.threads,
-                            quadParams.minWhiteBlackDiff,
+                            settings.gpuMinWhiteBlackDiff,
+                            settings.gpuMinBlobSize,
                             settings.refineEdges,
-                            0.25f));
+                            0.25f,
+                            settings.gpuFullResolution));
         }
 
         if (frameStaticProperties.cameraCalibration != null) {

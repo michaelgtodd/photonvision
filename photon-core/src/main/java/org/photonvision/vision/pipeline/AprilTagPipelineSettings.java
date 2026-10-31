@@ -36,6 +36,14 @@ public class AprilTagPipelineSettings extends AdvancedPipelineSettings {
     public boolean doSingleTargetAlways = false;
     // Use the GPU detector (photon-gpu, NVIDIA Jetson) when it is installed
     public boolean gpuDetector = false;
+    // GPU detector: search the full-resolution image (decimate 1) even above 1024 px. Off: quad
+    // finding at half resolution there, as before.
+    public boolean gpuFullResolution = false;
+    // GPU detector: smallest blob, in pixels of the image the quads are found in, that can make a
+    // tag edge (Team 971's code fixes 25). About 100 suits full resolution on a noisy sensor.
+    public int gpuMinBlobSize = 25;
+    // GPU detector: apriltag's min_white_black_diff for its threshold (the library default is 5).
+    public int gpuMinWhiteBlackDiff = 5;
 
     // Tier 2: full-resolution search of the far-field band on its own thread
     public boolean farFieldEnabled = false;

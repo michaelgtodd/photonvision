@@ -101,7 +101,7 @@ extern "C" {
  */
 JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_create(
     JNIEnv *env, jclass, jint width, jint height, jint decimate, jint cpuThreads,
-    jint minWhiteBlackDiff, jboolean refineEdges, jfloat decodeSharpening, jstring family) {
+    jint minWhiteBlackDiff, jint minBlobSize, jboolean refineEdges, jfloat decodeSharpening, jstring family) {
   if (!InitClasses(env)) return 0;
   if (width % 8 || height % 8 || width <= 0 || height <= 0) {
     ThrowIllegal(env, "GpuAprilTag: width and height must be multiples of 8");
@@ -111,8 +111,9 @@ JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_create(
     ThrowIllegal(env, "GpuAprilTag: decimate must be 1 or 2");
     return 0;
   }
-  if (decimate == 1 && (width > 1024 || height > 1024)) {
-    ThrowIllegal(env, "GpuAprilTag: decimate 1 only supports frames up to 1024x1024 (packed coordinates)");
+  // Points are packed with 11-bit coordinates (third_party/frc971/orin/points.h).
+  if (width / decimate > 2048 || height / decimate > 2048) {
+    ThrowIllegal(env, "GpuAprilTag: the thresholded image is limited to 2048x2048 (packed coordinates)");
     return 0;
   }
 
@@ -153,6 +154,7 @@ JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_create(
   frc971::apriltag::CameraMatrix cam{1000.0, width / 2.0, 1000.0, height / 2.0};
   frc971::apriltag::DistCoeffs dist{0, 0, 0, 0, 0};
   h->gpu = new frc971::apriltag::GpuDetector(width, height, h->td, cam, dist, decimate);
+  if (minBlobSize > 0) h->gpu->SetMinBlobSize(static_cast<uint32_t>(minBlobSize));
   return reinterpret_cast<jlong>(h);
 }
 

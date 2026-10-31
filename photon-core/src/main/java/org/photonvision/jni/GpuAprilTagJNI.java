@@ -75,6 +75,7 @@ public class GpuAprilTagJNI {
             int decimate,
             int cpuThreads,
             int minWhiteBlackDiff,
+            int minBlobSize,
             boolean refineEdges,
             float decodeSharpening,
             String family);

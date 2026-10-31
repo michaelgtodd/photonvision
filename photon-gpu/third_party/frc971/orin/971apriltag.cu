@@ -1,5 +1,8 @@
 #include "frc971/orin/971apriltag.h"
 
+#include <cstdlib>
+#include <string>
+
 #include <cub/device/device_copy.cuh>
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_reduce.cuh>
@@ -29,6 +32,21 @@ struct NonZero {
     return a.nonzero();
   }
 };
+
+// Maps a blob size to 1 if the blob is big enough to make boundary points (the
+// min_blob_size cut in BlobDiff), 0 otherwise.  Summed, that numbers those
+// blobs.
+struct BlobMakesPoints {
+  uint32_t min_blob_size = 25;
+  __host__ __device__ __forceinline__ uint32_t
+  operator()(const uint32_t &size) const {
+    return size >= min_blob_size ? 1u : 0u;
+  }
+};
+
+typedef cub::TransformInputIterator<uint32_t, BlobMakesPoints,
+                                    const uint32_t *>
+    BlobMakesPointsIterator;
 
 // Always returns true (only used for scratch space calcs).
 template <typename T>
@@ -94,6 +112,17 @@ static size_t DeviceScanInclusiveScanScratchSpace(size_t elements) {
   return temp_storage_bytes;
 }
 
+// Computes and returns the scratch space needed for the DeviceScan::ExclusiveSum
+// numbering the blobs in a size image with the provided number of elements.
+static size_t BlobIdsScanScratchSpace(size_t elements) {
+  size_t temp_storage_bytes = 0;
+  CHECK_CUDA(cub::DeviceScan::ExclusiveSum(
+      nullptr, temp_storage_bytes,
+      BlobMakesPointsIterator(nullptr, BlobMakesPoints()),
+      (uint32_t *)(nullptr), elements));
+  return temp_storage_bytes;
+}
+
 // Computes and returns the scratch space needed for DeviceScan::InclusiveScan
 // of the provided value V with the provided number of elements.
 template <typename K, typename V>
@@ -125,6 +154,7 @@ GpuDetector::GpuDetector(size_t width, size_t height,
       thresholded_image_device_(width / 2 * height / 2),
       union_markers_device_(width / 2 * height / 2),
       union_markers_size_device_(width / 2 * height / 2),
+      blob_ids_device_(union_markers_size_device_.size()),
       union_marker_pair_device_((width / 2 - 2) * (height / 2 - 2) * 4),
       compressed_union_marker_pair_device_(union_marker_pair_device_.size()),
       sorted_union_marker_pair_device_(union_marker_pair_device_.size()),
@@ -163,7 +193,9 @@ GpuDetector::GpuDetector(size_t width, size_t height,
               cub::KeyValuePair<long, MinMaxExtents>>(kMaxBlobs)),
       temp_storage_line_fit_scan_device_(
           DeviceScanInclusiveScanByKeyScratchSpace<uint32_t, LineFitPoint>(
-              sorted_selected_blobs_device_.size())) {
+              sorted_selected_blobs_device_.size())),
+      temp_storage_blob_ids_scan_device_(
+          BlobIdsScanScratchSpace(union_markers_size_device_.size())) {
   fit_quads_host_.reserve(kMaxBlobs);
   quad_corners_host_.reserve(kMaxBlobs);
 
@@ -213,6 +245,7 @@ GpuDetector::GpuDetector(size_t width, size_t height,
       thresholded_image_device_(width / decimate * height / decimate),
       union_markers_device_(width / decimate * height / decimate),
       union_markers_size_device_(width / decimate * height / decimate),
+      blob_ids_device_(union_markers_size_device_.size()),
       union_marker_pair_device_((width / decimate - 2) * (height / decimate - 2) * 4),
       compressed_union_marker_pair_device_(union_marker_pair_device_.size()),
       sorted_union_marker_pair_device_(union_marker_pair_device_.size()),
@@ -251,7 +284,9 @@ GpuDetector::GpuDetector(size_t width, size_t height,
               cub::KeyValuePair<long, MinMaxExtents>>(kMaxBlobs)),
       temp_storage_line_fit_scan_device_(
           DeviceScanInclusiveScanByKeyScratchSpace<uint32_t, LineFitPoint>(
-              sorted_selected_blobs_device_.size())) {
+              sorted_selected_blobs_device_.size())),
+      temp_storage_blob_ids_scan_device_(
+          BlobIdsScanScratchSpace(union_markers_size_device_.size())) {
   fit_quads_host_.reserve(kMaxBlobs);
   quad_corners_host_.reserve(kMaxBlobs);
 
@@ -301,8 +336,9 @@ template <size_t kBlockWidth, size_t kBlockHeight>
 __global__ void BlobDiff(const uint8_t *thresholded_image,
                          const uint32_t *blobs,
                          const uint32_t *union_markers_size,
+                         const uint32_t *blob_ids,
                          QuadBoundaryPoint *result, size_t width,
-                         size_t height) {
+                         size_t height, uint32_t min_blob_size) {
   __shared__ uint32_t temp_blob_storage[kBlockWidth * kBlockHeight];
   __shared__ uint8_t temp_image_storage[kBlockWidth * kBlockHeight];
 
@@ -356,7 +392,7 @@ __global__ void BlobDiff(const uint8_t *thresholded_image,
   const uint global_output_index = (x - 1) + (y - 1) * (width - 2);
 
   // Short circuit 127's and write an empty point out.
-  if (v0 == 127 || union_markers_size[rep0] < 25) {
+  if (v0 == 127 || union_markers_size[rep0] < min_blob_size) {
 #pragma unroll
     for (size_t point_offset = 0; point_offset < 4; ++point_offset) {
       const size_t write_address =
@@ -378,13 +414,13 @@ __global__ void BlobDiff(const uint8_t *thresholded_image,
     v1 = temp_image_storage[thread_linear_index1];                       \
     rep1 = temp_blob_storage[thread_linear_index1];                      \
     if (v0 + v1 == 255) {                                                \
-      if (union_markers_size[rep1] >= 25) {                              \
+      if (union_markers_size[rep1] >= min_blob_size) {                   \
         if (rep0 < rep1) {                                               \
-          cluster_id.set_rep1(rep1);                                     \
-          cluster_id.set_rep0(rep0);                                     \
+          cluster_id.set_rep1(blob_ids[rep1]);                           \
+          cluster_id.set_rep0(blob_ids[rep0]);                           \
         } else {                                                         \
-          cluster_id.set_rep1(rep0);                                     \
-          cluster_id.set_rep0(rep1);                                     \
+          cluster_id.set_rep1(blob_ids[rep0]);                           \
+          cluster_id.set_rep0(blob_ids[rep1]);                           \
         }                                                                \
         cluster_id.set_base_xy(x, y);                                    \
         cluster_id.set_dxy(point_offset);                                \
@@ -422,8 +458,8 @@ __global__ void BlobDiff(const uint8_t *thresholded_image,
   // Do the dedup calculation now.
   if (v1_block_left != 127 && v1_block_2 != 127 &&
       v1_block_2 != v1_block_left) {
-    if (x != 1 && union_markers_size[rep_block_left] >= 25 &&
-        union_markers_size[rep_block_2] >= 25) {
+    if (x != 1 && union_markers_size[rep_block_left] >= min_blob_size &&
+        union_markers_size[rep_block_2] >= min_blob_size) {
       const size_t write_address =
           (width - 2) * (height - 2) * 3 + global_output_index;
       result[write_address] = QuadBoundaryPoint();
@@ -475,7 +511,7 @@ class AddThetaToIndexPoint {
   __host__ __device__ __forceinline__ IndexPoint operator()(IndexPoint a) {
     MinMaxExtents extents = blob_finder_.Get(a.blob_index());
     float theta =
-        (atan2f(a.y() - extents.cy(), a.x() - extents.cx()) + M_PI) * 8e6;
+        (atan2f(a.y() - extents.cy(), a.x() - extents.cx()) + M_PI) * 1e6;
     long long int theta_int = llrintf(theta);
 
     a.set_theta(std::max<long long int>(0, theta_int));
@@ -663,11 +699,12 @@ struct TransformLineFitPoint {
 
     // we now undo our fixed-point arithmetic.
     // adjust for pixel center bias
-    int delta = decimate - 1; //1;  // not sure RJS
-    int32_t ix2 = p.x() + delta;
-    int32_t iy2 = p.y() + delta;
-    int32_t ix = ix2 / decimate; //2;  // not sure RJS
-    int32_t iy = iy2 / decimate; //2;
+    // p.x() and p.y() are in half pixels of the thresholded image whatever the
+    // decimation, so this is the same for decimate 1 and 2.
+    int32_t ix2 = p.x() + 1;
+    int32_t iy2 = p.y() + 1;
+    int32_t ix = ix2 / 2;
+    int32_t iy = iy2 / 2;
 
     int32_t W = 1;
 
@@ -872,6 +909,20 @@ void GpuDetector::DetectGray2(uint8_t *image) {
 
   after_unionfinding_.Record(&stream_);
 
+  {
+    // Number the blobs which can make boundary points densely, so a blob pair
+    // fits the QuadBoundaryPoint key even at full resolution, where the
+    // union-find pixel indices need 22 bits each (see points.h).
+    size_t temp_storage_bytes = temp_storage_blob_ids_scan_device_.size();
+    CHECK_CUDA(cub::DeviceScan::ExclusiveSum(
+        temp_storage_blob_ids_scan_device_.get(), temp_storage_bytes,
+        BlobMakesPointsIterator(union_markers_size_device_.get(),
+                                BlobMakesPoints{min_blob_size_}),
+        blob_ids_device_.get(), union_markers_size_device_.size(),
+        stream_.get()));
+    MaybeCheckAndSynchronize("cub::DeviceScan::ExclusiveSum");
+  }
+
   CHECK((width_ % 8) == 0);
   CHECK((height_ % 8) == 0);
 
@@ -896,8 +947,9 @@ void GpuDetector::DetectGray2(uint8_t *image) {
 
     BlobDiff<kBlockWidth, kBlockHeight><<<blocks, threads, 0, stream_.get()>>>(
         thresholded_image_device_.get(), union_markers_device_.get(),
-        union_markers_size_device_.get(), union_marker_pair_device_.get(),
-        decimated_width, decimated_height);
+        union_markers_size_device_.get(), blob_ids_device_.get(),
+        union_marker_pair_device_.get(), decimated_width, decimated_height,
+        min_blob_size_);
     MaybeCheckAndSynchronize("BlobDiff");
   }
 
@@ -980,6 +1032,8 @@ void GpuDetector::DetectGray2(uint8_t *image) {
     after_bounds_.Record(&stream_);
 
     num_quads_device_.MemcpyTo(&num_quads_host);
+    // Every blob pair needs an IndexPoint blob index and a selected extent.
+    CHECK_LE(num_quads_host, kMaxBlobs);
   }
 
   // Longest april tag will be the full perimeter of the image.  Each point
