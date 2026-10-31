@@ -80,7 +80,7 @@ export interface PVCameraInfoBase {
   Huge hack. In Jackson, this is set based on the underlying type -- this
   then maps to one of the 3 subclasses here below. Not sure how to best deal with this.
   */
-  cameraTypename: "PVUsbCameraInfo" | "PVCSICameraInfo" | "PVFileCameraInfo";
+  cameraTypename: "PVUsbCameraInfo" | "PVCSICameraInfo" | "PVFileCameraInfo" | "PVSecondaryFeedInfo";
 }
 
 export interface PVUsbCameraInfo {
@@ -109,11 +109,23 @@ export interface PVFileCameraInfo {
   uniquePath: string;
 }
 
+// A second pipeline on another camera's frames (PVCameraInfo.PVSecondaryFeedInfo in Java). It has no device of
+// its own: it reads the camera at parentPath, and is connected when that camera is.
+export interface PVSecondaryFeedInfo {
+  parentPath: string;
+  name: string;
+  maxFps: number;
+
+  // parentPath + "#" + name
+  uniquePath: string;
+}
+
 // This camera info will only ever hold one of its members - the others should be undefined.
 export class PVCameraInfo {
   PVUsbCameraInfo: PVUsbCameraInfo | undefined;
   PVCSICameraInfo: PVCSICameraInfo | undefined;
   PVFileCameraInfo: PVFileCameraInfo | undefined;
+  PVSecondaryFeedInfo?: PVSecondaryFeedInfo | undefined;
 }
 
 export interface VsmState {

@@ -7,6 +7,7 @@ import {
   PVCameraInfo,
   type PVCSICameraInfo,
   type PVFileCameraInfo,
+  type PVSecondaryFeedInfo,
   type PVUsbCameraInfo
 } from "@/types/SettingTypes";
 import { axiosPost, getResolutionString } from "@/lib/PhotonUtils";
@@ -91,8 +92,7 @@ const activeVisionModules = computed(() =>
     // Display connected cameras first
     .sort(
       (first, second) =>
-        (cameraConnected(cameraInfoFor(second.matchedCameraInfo).uniquePath) ? 1 : 0) -
-        (cameraConnected(cameraInfoFor(first.matchedCameraInfo).uniquePath) ? 1 : 0)
+        (infoConnected(second.matchedCameraInfo) ? 1 : 0) - (infoConnected(first.matchedCameraInfo) ? 1 : 0)
     )
 );
 
@@ -108,7 +108,9 @@ const setCameraView = (camera: PVCameraInfo | null, isConnected: boolean | null)
 /**
  * Get the connection-type-specific camera info from the given PVCameraInfo object.
  */
-const cameraInfoFor = (camera: PVCameraInfo | null): PVUsbCameraInfo | PVCSICameraInfo | PVFileCameraInfo | any => {
+const cameraInfoFor = (
+  camera: PVCameraInfo | null
+): PVUsbCameraInfo | PVCSICameraInfo | PVFileCameraInfo | PVSecondaryFeedInfo | any => {
   if (!camera) return null;
   if (camera.PVUsbCameraInfo) {
     return camera.PVUsbCameraInfo;
@@ -119,8 +121,29 @@ const cameraInfoFor = (camera: PVCameraInfo | null): PVUsbCameraInfo | PVCSICame
   if (camera.PVFileCameraInfo) {
     return camera.PVFileCameraInfo;
   }
+  if (camera.PVSecondaryFeedInfo) {
+    return camera.PVSecondaryFeedInfo;
+  }
   return {};
 };
+
+/**
+ * Whether the camera behind a module's info is plugged in. A secondary feed has no device of its own, so it is
+ * connected when the camera it reads from is.
+ */
+const infoConnected = (info: PVCameraInfo | null): boolean => {
+  if (!info) return false;
+  if (info.PVSecondaryFeedInfo) return cameraConnected(info.PVSecondaryFeedInfo.parentPath);
+  return cameraConnected(cameraInfoFor(info).uniquePath);
+};
+
+/**
+ * The nickname of the camera a secondary feed reads from, or its path if no module holds that camera.
+ */
+const parentNameFor = (feed: PVSecondaryFeedInfo): string =>
+  Object.values(useCameraSettingsStore().cameras).find(
+    (it) => cameraInfoFor(it.matchedCameraInfo).uniquePath === feed.parentPath
+  )?.nickname ?? feed.parentPath;
 
 /**
  * Find the PVCameraInfo currently occupying the same uniquePath as the the given module
@@ -133,6 +156,8 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
       PVUsbCameraInfo: undefined
     };
   }
+  // A secondary feed is not a device: it is its own match.
+  if (info.PVSecondaryFeedInfo) return info;
   return (
     useStateStore().vsmState.allConnectedCameras.find(
       (it) => cameraInfoFor(it).uniquePath === cameraInfoFor(info).uniquePath
@@ -159,23 +184,17 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
       >
         <v-card color="surface" class="rounded-12">
           <v-card-title>{{ cameraInfoFor(module.matchedCameraInfo).name }}</v-card-title>
-          <v-card-subtitle v-if="!cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath)"
+          <v-card-subtitle v-if="!infoConnected(module.matchedCameraInfo)"
             >Status: <span class="inactive-status">Disconnected</span></v-card-subtitle
           >
-          <v-card-subtitle
-            v-else-if="cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath) && !module.mismatch"
+          <v-card-subtitle v-else-if="infoConnected(module.matchedCameraInfo) && !module.mismatch"
             >Status: <span class="active-status">Active</span></v-card-subtitle
           >
           <v-card-subtitle v-else>Status: <span class="mismatch-status">Mismatch</span></v-card-subtitle>
           <v-card-text class="pt-3">
             <v-table density="compact">
               <tbody>
-                <tr
-                  v-if="
-                    cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath) &&
-                    useStateStore().backendResults[module.uniqueName]
-                  "
-                >
+                <tr v-if="infoConnected(module.matchedCameraInfo) && useStateStore().backendResults[module.uniqueName]">
                   <td style="width: 50%">Frames Processed</td>
                   <td>
                     {{ useStateStore().backendResults[module.uniqueName].sequenceID }} ({{
@@ -188,6 +207,13 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
                   <td>Name</td>
                   <td>
                     {{ module.nickname }}
+                  </td>
+                </tr>
+                <tr v-if="module.matchedCameraInfo.PVSecondaryFeedInfo">
+                  <td>Secondary feed of</td>
+                  <td>
+                    {{ parentNameFor(module.matchedCameraInfo.PVSecondaryFeedInfo) }} (at most
+                    {{ module.matchedCameraInfo.PVSecondaryFeedInfo.maxFps }} FPS)
                   </td>
                 </tr>
                 <tr>
@@ -214,7 +240,7 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
               </tbody>
             </v-table>
             <div
-              v-if="cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath)"
+              v-if="infoConnected(module.matchedCameraInfo)"
               :id="`stream-container-${index}`"
               class="d-flex flex-column justify-center align-center mt-3"
               style="height: 250px"
@@ -233,12 +259,7 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
                   color="buttonPassive"
                   style="width: 100%"
                   :variant="theme.global.current.value.dark ? 'outlined' : 'elevated'"
-                  @click="
-                    setCameraView(
-                      module.matchedCameraInfo,
-                      cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath)
-                    )
-                  "
+                  @click="setCameraView(module.matchedCameraInfo, infoConnected(module.matchedCameraInfo))"
                 >
                   <span>Details</span>
                 </v-btn>
@@ -289,7 +310,9 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
         class="pr-0"
       >
         <v-card class="pr-0 rounded-12" color="surface">
-          <v-card-title>{{ module.cameraQuirks.baseName }}</v-card-title>
+          <v-card-title>{{
+            module.cameraQuirks.baseName || cameraInfoFor(module.matchedCameraInfo).name
+          }}</v-card-title>
           <v-card-subtitle>Status: <span class="inactive-status">Deactivated</span></v-card-subtitle>
           <v-card-text class="pt-3">
             <v-table density="compact">
@@ -315,7 +338,7 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
                 </tr>
                 <tr>
                   <td>Connected</td>
-                  <td>{{ cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath) }}</td>
+                  <td>{{ infoConnected(module.matchedCameraInfo) }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -327,12 +350,7 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
                   color="buttonPassive"
                   style="width: 100%"
                   :variant="theme.global.current.value.dark ? 'outlined' : 'elevated'"
-                  @click="
-                    setCameraView(
-                      module.matchedCameraInfo,
-                      cameraConnected(cameraInfoFor(module.matchedCameraInfo).uniquePath)
-                    )
-                  "
+                  @click="setCameraView(module.matchedCameraInfo, infoConnected(module.matchedCameraInfo))"
                 >
                   <span>Details</span>
                 </v-btn>
