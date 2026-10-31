@@ -179,6 +179,18 @@ const isCalibrating = computed(
   () => useCameraSettingsStore().currentCameraSettings.currentPipelineIndex === WebsocketPipelineType.Calib3d
 );
 
+// A secondary feed reads its parent camera's frames (same sensor, lens and resolution), so it uses the parent's
+// calibration and has none of its own; the backend shows and changes the parent's. It is calibrated on the parent.
+const secondaryFeed = computed(
+  () => useCameraSettingsStore().currentCameraSettings.matchedCameraInfo?.PVSecondaryFeedInfo
+);
+const parentCamera = computed(() =>
+  useCameraSettingsStore().parentCamera(useCameraSettingsStore().currentCameraSettings)
+);
+const secondaryFeeds = computed(() =>
+  useCameraSettingsStore().secondaryFeeds(useCameraSettingsStore().currentCameraSettings)
+);
+
 const startCalibration = () => {
   useCameraSettingsStore().startPnPCalibration({
     squareSizeIn: squareSizeIn.value,
@@ -243,7 +255,54 @@ const setSelectedVideoFormat = (format: VideoFormat) => {
   <div>
     <v-card class="mb-3 rounded-12" color="surface" dark>
       <v-card-title>Camera Calibration</v-card-title>
-      <v-card-text v-if="!isCalibrating" class="pb-0">
+      <v-card-text v-if="secondaryFeed" class="pb-3">
+        <v-alert
+          density="compact"
+          :variant="theme.global.current.value.dark ? 'tonal' : 'elevated'"
+          color="buttonPassive"
+          icon="mdi-link-variant"
+        >
+          <template v-if="parentCamera">
+            This feed reads {{ parentCamera.nickname }}'s frames: the same sensor, lens and resolution. It has no
+            calibration of its own and uses {{ parentCamera.nickname }}'s, listed below. Calibrate
+            {{ parentCamera.nickname }} once and both use it.
+          </template>
+          <template v-else>
+            This feed reads the frames of the camera at {{ secondaryFeed.parentPath }} and uses that camera's
+            calibration, but no camera module holds it.
+          </template>
+        </v-alert>
+        <v-btn
+          v-if="parentCamera"
+          class="mt-3"
+          color="buttonActive"
+          size="small"
+          block
+          :variant="theme.global.current.value.dark ? 'outlined' : 'elevated'"
+          @click="useStateStore().currentCameraUniqueName = parentCamera.uniqueName"
+        >
+          <v-icon start size="large">mdi-flag-outline</v-icon>
+          <span>Calibrate {{ parentCamera.nickname }}</span>
+        </v-btn>
+      </v-card-text>
+      <v-card-text v-else-if="secondaryFeeds.length && !isCalibrating" class="pb-3">
+        <v-alert
+          density="compact"
+          :variant="theme.global.current.value.dark ? 'tonal' : 'elevated'"
+          color="buttonPassive"
+          icon="mdi-link-variant"
+        >
+          <template v-if="secondaryFeeds.length === 1">
+            {{ secondaryFeeds[0].nickname }} reads this camera's frames and uses its calibration: calibrate here once
+            for both.
+          </template>
+          <template v-else>
+            {{ secondaryFeeds.map((it) => it.nickname).join(", ") }} read this camera's frames and use its calibration:
+            calibrate here once for all of them.
+          </template>
+        </v-alert>
+      </v-card-text>
+      <v-card-text v-if="!isCalibrating" :class="secondaryFeed ? '' : 'pb-0'">
         <div class="pb-3">
           <tooltipped-label
             label="Curent Calibrations"
@@ -288,7 +347,7 @@ const setSelectedVideoFormat = (format: VideoFormat) => {
           </tbody>
         </v-table>
       </v-card-text>
-      <v-card-text class="pt-0">
+      <v-card-text v-if="!secondaryFeed" class="pt-0">
         <div v-if="useCameraSettingsStore().isConnected" class="d-flex flex-column">
           <v-card-subtitle v-if="!isCalibrating" class="pl-0 pb-3 pt-4 opacity-100"
             >Configure New Calibration</v-card-subtitle

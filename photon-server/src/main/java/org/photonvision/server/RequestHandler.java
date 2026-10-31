@@ -61,6 +61,7 @@ import org.photonvision.vision.camera.PVCameraInfo;
 import org.photonvision.vision.objects.ObjectDetector;
 import org.photonvision.vision.objects.RknnModel;
 import org.photonvision.vision.objects.RubikModel;
+import org.photonvision.vision.processes.VisionModule;
 import org.photonvision.vision.processes.VisionSourceManager;
 import org.zeroturnaround.zip.ZipUtil;
 
@@ -1018,6 +1019,15 @@ public class RequestHandler {
     }
 
     /**
+     * The module holding the calibrations camera cameraUniqueName uses: itself, or for a secondary
+     * feed its parent camera's (VisionModule.calibrationOwner). Null if there is none.
+     */
+    private static VisionModule calibrationModule(String cameraUniqueName) {
+        var module = VisionSourceManager.getInstance().vmm.getModule(cameraUniqueName);
+        return module != null ? module.calibrationOwner() : null;
+    }
+
+    /**
      * Get the calibration JSON for a specific observation. Excludes camera image data
      *
      * <p>This is excluded from UICalibrationCoefficients by default to save bandwidth on large
@@ -1028,7 +1038,7 @@ public class RequestHandler {
         var width = Integer.parseInt(ctx.queryParam("width"));
         var height = Integer.parseInt(ctx.queryParam("height"));
 
-        var module = VisionSourceManager.getInstance().vmm.getModule(cameraUniqueName);
+        var module = calibrationModule(cameraUniqueName);
         if (module == null) {
             ctx.status(404);
             return;
@@ -1098,13 +1108,14 @@ public class RequestHandler {
         var height = Integer.parseInt(ctx.queryParam("height"));
         Integer observationIdx = Integer.parseInt(ctx.queryParam("snapshotIdx"));
 
+        var module = calibrationModule(cameraUniqueName);
+        if (module == null) {
+            ctx.status(404);
+            return;
+        }
+
         CameraCalibrationCoefficients calList =
-                VisionSourceManager.getInstance()
-                        .vmm
-                        .getModule(cameraUniqueName)
-                        .getStateAsCameraConfig()
-                        .calibrations
-                        .stream()
+                module.getStateAsCameraConfig().calibrations.stream()
                         .filter(
                                 it ->
                                         Math.abs(it.unrotatedImageSize.width - width) < 1e-4
@@ -1139,8 +1150,12 @@ public class RequestHandler {
         var width = Integer.parseInt(ctx.queryParam("width"));
         var height = Integer.parseInt(ctx.queryParam("height"));
 
-        var cc =
-                VisionSourceManager.getInstance().vmm.getModule(cameraUniqueName).getStateAsCameraConfig();
+        var module = calibrationModule(cameraUniqueName);
+        if (module == null) {
+            ctx.status(404);
+            return;
+        }
+        var cc = module.getStateAsCameraConfig();
 
         CameraCalibrationCoefficients calList =
                 cc.calibrations.stream()

@@ -146,9 +146,11 @@ const wrappedCameras = computed<SelectItem[]>(() =>
       <pv-number-input
         v-model="tempSettingsStruct.fov"
         :tooltip="
-          !useCameraSettingsStore().currentCameraSettings.fov.managedByVendor
-            ? 'Field of view (in degrees) of the camera measured across the diagonal of the frame, in a video mode which covers the whole sensor area.'
-            : 'This setting is managed by a vendor'
+          useCameraSettingsStore().currentCameraSettings.matchedCameraInfo?.PVSecondaryFeedInfo
+            ? 'A secondary feed uses the FOV and calibration of the camera it reads from; set them on that camera.'
+            : !useCameraSettingsStore().currentCameraSettings.fov.managedByVendor
+              ? 'Field of view (in degrees) of the camera measured across the diagonal of the frame, in a video mode which covers the whole sensor area.'
+              : 'This setting is managed by a vendor'
         "
         label="Maximum Diagonal FOV"
         :disabled="useCameraSettingsStore().currentCameraSettings.fov.managedByVendor"

@@ -106,6 +106,14 @@ const exportCalibrationURL = computed<string>(() =>
 const calibrationImageURL = (index: number) =>
   useCameraSettingsStore().getCalImageUrl(inject<string>("backendHost") as string, props.videoFormat.resolution, index);
 
+// A secondary feed shows its parent camera's calibration; it is changed on the parent.
+const parentCamera = computed(() =>
+  useCameraSettingsStore().parentCamera(useCameraSettingsStore().currentCameraSettings)
+);
+const isSecondaryFeed = computed(
+  () => !!useCameraSettingsStore().currentCameraSettings.matchedCameraInfo?.PVSecondaryFeedInfo
+);
+
 const tab = ref("details");
 const viewingImg = ref(0);
 </script>
@@ -121,6 +129,7 @@ const viewingImg = ref(0);
           <v-btn
             color="buttonPassive"
             style="width: 100%"
+            :disabled="isSecondaryFeed"
             :variant="theme.global.current.value.dark ? 'outlined' : 'elevated'"
             @click="openUploadPhotonCalibJsonPrompt"
           >
@@ -169,7 +178,11 @@ const viewingImg = ref(0);
                 <tbody>
                   <tr>
                     <td>Camera</td>
-                    <td>
+                    <td v-if="isSecondaryFeed">
+                      {{ parentCamera?.nickname ?? "Parent camera" }} (used by
+                      {{ useCameraSettingsStore().currentCameraName }})
+                    </td>
+                    <td v-else>
                       {{ useCameraSettingsStore().currentCameraName }}
                     </td>
                   </tr>

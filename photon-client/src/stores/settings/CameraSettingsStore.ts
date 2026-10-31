@@ -21,6 +21,12 @@ interface CameraSettingsStore {
   cameras: { [key: string]: UiCameraConfiguration };
 }
 
+/** The device path a secondary feed names as its parentPath; undefined for a secondary feed. */
+const devicePathOf = (camera: UiCameraConfiguration): string | undefined => {
+  const info = camera.matchedCameraInfo;
+  return (info?.PVUsbCameraInfo ?? info?.PVCSICameraInfo ?? info?.PVFileCameraInfo)?.uniquePath;
+};
+
 export const useCameraSettingsStore = defineStore("cameraSettings", {
   state: (): CameraSettingsStore => ({
     cameras: { [PlaceholderCameraSettings.uniqueName]: PlaceholderCameraSettings }
@@ -60,6 +66,27 @@ export const useCameraSettingsStore = defineStore("cameraSettings", {
     },
     currentCameraName(): string {
       return this.cameras[useStateStore().currentCameraUniqueName].nickname;
+    },
+    /**
+     * For a secondary feed, the camera whose frames it reads: it uses that camera's calibration and FOV and has none
+     * of its own. Undefined for any other camera, or if no module holds the parent.
+     */
+    parentCamera(): (camera: UiCameraConfiguration) => UiCameraConfiguration | undefined {
+      return (camera) => {
+        const parentPath = camera.matchedCameraInfo?.PVSecondaryFeedInfo?.parentPath;
+        if (parentPath === undefined) return undefined;
+        return Object.values(this.cameras).find((it) => devicePathOf(it) === parentPath);
+      };
+    },
+    /** The secondary feeds that read this camera's frames, and so use its calibration. */
+    secondaryFeeds(): (camera: UiCameraConfiguration) => UiCameraConfiguration[] {
+      return (camera) => {
+        const path = devicePathOf(camera);
+        if (path === undefined) return [];
+        return Object.values(this.cameras).filter(
+          (it) => it.matchedCameraInfo?.PVSecondaryFeedInfo?.parentPath === path
+        );
+      };
     },
     pipelineNames(): string[] {
       return this.currentCameraSettings.pipelineNicknames;

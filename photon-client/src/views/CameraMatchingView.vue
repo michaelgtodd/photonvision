@@ -220,7 +220,17 @@ const getMatchedDevice = (info: PVCameraInfo | undefined): PVCameraInfo => {
                   <td>Pipelines</td>
                   <td>{{ module.pipelineNicknames.join(", ") }}</td>
                 </tr>
-                <tr>
+                <tr v-if="module.matchedCameraInfo.PVSecondaryFeedInfo">
+                  <td>Calibrations</td>
+                  <td>
+                    {{ parentNameFor(module.matchedCameraInfo.PVSecondaryFeedInfo) }}'s:
+                    {{
+                      module.completeCalibrations.map((it) => getResolutionString(it.resolution)).join(", ") ||
+                      "not calibrated"
+                    }}
+                  </td>
+                </tr>
+                <tr v-else>
                   <td>Calibrations</td>
                   <td>
                     {{

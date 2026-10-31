@@ -45,6 +45,7 @@ import org.photonvision.common.util.SerializationUtils;
 import org.photonvision.vision.calibration.CameraCalibrationCoefficients;
 import org.photonvision.vision.camera.CameraQuirk;
 import org.photonvision.vision.camera.CameraType;
+import org.photonvision.vision.camera.PVCameraInfo;
 import org.photonvision.vision.camera.QuirkyCamera;
 import org.photonvision.vision.camera.csi.LibcameraGpuSource;
 import org.photonvision.vision.frame.Frame;
@@ -445,9 +446,12 @@ public class VisionModule {
 
         setPipeline(pipelineManager.getRequestedIndex());
 
+        var owner = ret != null ? calibrationOwnerOrLog() : this;
+        if (owner == null) ret = null; // a secondary feed with no parent to save it to
         if (ret != null) {
             logger.debug("Saving calibration...");
-            visionSource.getSettables().addCalibration(ret);
+            if (owner == this) visionSource.getSettables().addCalibration(ret);
+            else owner.addCalibrationToConfig(ret); // a secondary feed's goes to its parent camera
         } else {
             logger.error("Calibration failed...");
         }
@@ -576,7 +580,10 @@ public class VisionModule {
         var config = visionSource.getCameraConfiguration();
         ret.matchedCameraInfo = config.matchedCameraInfo;
         ret.cameraPath = config.getDevicePath();
-        ret.fov = visionSource.getSettables().getFOV();
+        // a secondary feed's FOV and calibrations are its parent camera's
+        var calibrationOwner = calibrationOwner();
+        ret.fov =
+                (calibrationOwner != null ? calibrationOwner : this).visionSource.getSettables().getFOV();
         ret.isCSICamera = config.matchedCameraInfo.type() == CameraType.ZeroCopyPicam;
         ret.nickname = visionSource.getSettables().getConfiguration().nickname;
         ret.uniqueName = visionSource.getSettables().getConfiguration().uniqueName;
@@ -625,12 +632,13 @@ public class VisionModule {
         ret.inputStreamPort = this.inputStreamPort;
 
         ret.calibrations =
-                visionSource.getSettables().getConfiguration().calibrations.stream()
+                getCalibrations().stream()
                         .map(CameraCalibrationCoefficients::cloneWithoutObservations)
                         .toList();
 
         ret.isFovConfigurable =
-                !(ConfigManager.getInstance().getConfig().getHardwareConfig().hasPresetFOV());
+                calibrationOwner == this
+                        && !(ConfigManager.getInstance().getConfig().getHardwareConfig().hasPresetFOV());
 
         ret.isConnected = visionSource.getFrameProvider().isConnected();
         ret.hasConnected = visionSource.getFrameProvider().hasConnected();
@@ -713,7 +721,53 @@ public class VisionModule {
         }
     }
 
+    /**
+     * The module that holds this camera's calibrations. A secondary feed reads its parent camera's
+     * frames -- same sensor, lens and resolution -- and its pipelines use the parent's calibration
+     * (SecondaryVisionSource), so it keeps none of its own: it shows its parent's, and a calibration
+     * made, imported or removed through it changes its parent's. Null if a secondary feed's parent
+     * has no module.
+     */
+    public VisionModule calibrationOwner() {
+        if (!(visionSource.getCameraConfiguration().matchedCameraInfo
+                instanceof PVCameraInfo.PVSecondaryFeedInfo feed)) return this;
+        for (var module : VisionSourceManager.getInstance().vmm.getModules()) {
+            var info = module.visionSource.getCameraConfiguration().matchedCameraInfo;
+            if (module != this && info != null && feed.parentPath.equals(info.uniquePath()))
+                return module;
+        }
+        return null;
+    }
+
+    /** The calibrations this camera's pipelines use: its own, or its parent camera's. */
+    public List<CameraCalibrationCoefficients> getCalibrations() {
+        var owner = calibrationOwner();
+        return owner != null
+                ? owner.visionSource.getSettables().getConfiguration().calibrations
+                : List.of();
+    }
+
+    /** Null if this is a secondary feed whose parent has no module (and logs why). */
+    private VisionModule calibrationOwnerOrLog() {
+        var owner = calibrationOwner();
+        if (owner == null) {
+            logger.error(
+                    "This feed uses its parent camera's calibration, and the parent camera has no module");
+        } else if (owner != this) {
+            logger.info(
+                    "This feed uses "
+                            + owner.visionSource.getSettables().getConfiguration().nickname
+                            + "'s calibration; changing that");
+        }
+        return owner;
+    }
+
     public void addCalibrationToConfig(CameraCalibrationCoefficients newCalibration) {
+        var owner = calibrationOwnerOrLog();
+        if (owner != this) {
+            if (owner != null) owner.addCalibrationToConfig(newCalibration);
+            return;
+        }
         if (newCalibration != null) {
             logger.info("Got new calibration for " + newCalibration.unrotatedImageSize);
             visionSource.getSettables().addCalibration(newCalibration);
@@ -725,6 +779,11 @@ public class VisionModule {
     }
 
     public void removeCalibrationFromConfig(Size unrotatedImageSize) {
+        var owner = calibrationOwnerOrLog();
+        if (owner != this) {
+            if (owner != null) owner.removeCalibrationFromConfig(unrotatedImageSize);
+            return;
+        }
         if (unrotatedImageSize != null) {
             visionSource.getSettables().removeCalibration(unrotatedImageSize);
         } else {
