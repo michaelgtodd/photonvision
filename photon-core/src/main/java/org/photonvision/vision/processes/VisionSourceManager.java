@@ -44,8 +44,8 @@ import org.photonvision.common.util.TimedTaskManager;
 import org.photonvision.raspi.LibCameraJNI;
 import org.photonvision.vision.camera.CameraType;
 import org.photonvision.vision.camera.FileVisionSource;
-import org.photonvision.vision.camera.SecondaryVisionSource;
 import org.photonvision.vision.camera.PVCameraInfo;
+import org.photonvision.vision.camera.SecondaryVisionSource;
 import org.photonvision.vision.camera.USBCameras.USBCameraSource;
 import org.photonvision.vision.camera.csi.LibcameraGpuSource;
 
@@ -234,6 +234,59 @@ public class VisionSourceManager {
         pushUiUpdate();
 
         return true;
+    }
+
+    /**
+     * The name a camera's secondary feed takes when the camera is renamed from oldName to newName: a
+     * feed named oldName plus a suffix that starts with anything but a letter or digit (as in
+     * gmsl-linkA-full) keeps the suffix. Null for a feed with a name of its own.
+     */
+    static String followingFeedName(String feedName, String oldName, String newName) {
+        if (feedName == null || oldName == null || oldName.isEmpty()) return null;
+        if (feedName.length() <= oldName.length() || !feedName.startsWith(oldName)) return null;
+        if (Character.isLetterOrDigit(feedName.charAt(oldName.length()))) return null;
+        return newName + feedName.substring(oldName.length());
+    }
+
+    /**
+     * Renames the secondary feeds of the camera at parentPath along with it (followingFeedName),
+     * deactivated ones included. A feed whose new name another camera already has keeps its name.
+     */
+    public synchronized void renameSecondaryFeeds(String parentPath, String oldName, String newName) {
+        var taken = new ArrayList<String>();
+        vmm.getModules().forEach(it -> taken.add(it.getCameraConfiguration().nickname));
+        disabledCameraConfigs.values().forEach(it -> taken.add(it.nickname));
+
+        boolean disabledChanged = false;
+        var feeds = new ArrayList<CameraConfiguration>();
+        vmm.getModules().forEach(it -> feeds.add(it.getCameraConfiguration()));
+        feeds.addAll(disabledCameraConfigs.values());
+        for (var config : feeds) {
+            if (!(config.matchedCameraInfo instanceof PVCameraInfo.PVSecondaryFeedInfo feed)
+                    || !feed.parentPath.equals(parentPath)) continue;
+            var name = followingFeedName(config.nickname, oldName, newName);
+            if (name == null) {
+                logger.info("Secondary feed " + config.nickname + " keeps its own name");
+                continue;
+            }
+            if (taken.contains(name)) {
+                logger.warn("Secondary feed " + config.nickname + " keeps its name: " + name + " is taken");
+                continue;
+            }
+            logger.info(
+                    "Renaming secondary feed " + config.nickname + " to " + name + " with its camera");
+            taken.add(name);
+            var module =
+                    vmm.getModules().stream().filter(it -> it.getCameraConfiguration() == config).findFirst();
+            if (module.isPresent()) {
+                module.get().setCameraNickname(name);
+            } else {
+                config.nickname = name;
+                ConfigManager.getInstance().saveModule(config, config.uniqueName);
+                disabledChanged = true;
+            }
+        }
+        if (disabledChanged) pushUiUpdate();
     }
 
     public synchronized boolean deleteVisionSource(String uniqueName) {

@@ -565,13 +565,22 @@ public class VisionModule {
     }
 
     public void setCameraNickname(String newName) {
-        visionSource.getSettables().getConfiguration().nickname = newName;
+        var config = visionSource.getSettables().getConfiguration();
+        var oldName = config.nickname;
+        config.nickname = newName;
         ntConsumer.updateCameraNickname(newName);
         inputFrameSaver.updateCameraNickname(newName);
         outputFrameSaver.updateCameraNickname(newName);
 
         // Push new data to the UI
         saveAndBroadcastAll();
+
+        // its secondary feeds follow it: <oldName>-full becomes <newName>-full
+        if (!(config.matchedCameraInfo instanceof PVCameraInfo.PVSecondaryFeedInfo)
+                && !newName.equals(oldName)) {
+            VisionSourceManager.getInstance()
+                    .renameSecondaryFeeds(config.matchedCameraInfo.uniquePath(), oldName, newName);
+        }
     }
 
     public UICameraConfiguration toUICameraConfig() {

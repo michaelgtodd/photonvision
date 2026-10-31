@@ -86,6 +86,23 @@ const cancelCameraNameEdit = () => {
   currentCameraName.value = useCameraSettingsStore().currentCameraSettings.nickname;
 };
 
+// A camera's secondary feeds are renamed with it (VisionSourceManager.renameSecondaryFeeds in the backend):
+// <old name>-full becomes <new name>-full, and so are their NetworkTables names. Shown while editing.
+const followingFeeds = computed(() => {
+  const store = useCameraSettingsStore();
+  const oldName = store.currentCameraSettings.nickname;
+  const newName = currentCameraName.value;
+  if (!isCameraNameEdit.value || newName === oldName || checkCameraName(newName) !== true) return [];
+  return store.secondaryFeeds(store.currentCameraSettings).map((feed) => {
+    const follows =
+      feed.nickname.length > oldName.length &&
+      feed.nickname.startsWith(oldName) &&
+      !/[\p{L}\p{N}]/u.test(feed.nickname.charAt(oldName.length));
+    const to = follows ? newName + feed.nickname.substring(oldName.length) : undefined;
+    return { from: feed.nickname, to, taken: to !== undefined && store.cameraNames.includes(to) };
+  });
+});
+
 // Pipeline Name Edit
 const pipelineNamesWrapper = computed<SelectItem[]>(() => {
   const pipelineNames = useCameraSettingsStore().pipelineNames.map((name, index) => ({ name: name, value: index }));
@@ -269,6 +286,13 @@ const wrappedCameras = computed<SelectItem[]>(() =>
           @onEnter="saveCameraNameEdit"
           @onEscape="cancelCameraNameEdit"
         />
+        <div v-if="followingFeeds.length" class="text-caption pl-3 pb-2">
+          <div v-for="feed in followingFeeds" :key="feed.from">
+            <template v-if="feed.to && !feed.taken">Also renames {{ feed.from }} to {{ feed.to }}</template>
+            <template v-else-if="feed.to">{{ feed.from }} keeps its name: {{ feed.to }} is taken</template>
+            <template v-else>{{ feed.from }} keeps its own name</template>
+          </div>
+        </div>
       </v-col>
       <v-col cols="2" style="display: flex; align-items: center; justify-content: center">
         <div v-if="isCameraNameEdit" style="display: flex; gap: 14px">
