@@ -18,6 +18,7 @@
 package org.photonvision.vision.pipe.impl;
 
 import edu.wpi.first.apriltag.AprilTagDetection;
+import java.util.HashMap;
 import java.util.List;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -67,6 +68,43 @@ public class AprilTagDetectionGpuPipe
         return requested >= 2 ? 2 : 1;
     }
 
+    // Full-resolution detectors are shared by every pipe that asks for one with the same frame
+    // size and parameters. Each holds 1.5-2 GB of device buffers; on the 8 GB Orin Nano, a second
+    // one beside four half-resolution detectors ran the GPU out of memory (NvMap ENOMEM), after
+    // which every CUDA call in the process failed. Full-resolution feeds run at a few fps each, so
+    // one detector serves them all: GpuAprilTagJNI.detect serialises calls on a handle.
+    private record SharedKey(int width, int height, AprilTagDetectionGpuPipeParams params) {}
+
+    private static final class SharedDetector {
+        final long handle;
+        int users = 0;
+
+        SharedDetector(long handle) {
+            this.handle = handle;
+        }
+    }
+
+    private static final HashMap<SharedKey, SharedDetector> sharedDetectors = new HashMap<>();
+    private SharedKey sharedKey = null;
+
+    private long createDetector(int width, int height, int decimate) {
+        try {
+            return GpuAprilTagJNI.create(
+                    width,
+                    height,
+                    decimate,
+                    params.cpuThreads(),
+                    params.minWhiteBlackDiff(),
+                    params.minBlobSize(),
+                    params.refineEdges(),
+                    params.decodeSharpening(),
+                    params.family().getNativeName());
+        } catch (IllegalArgumentException e) {
+            logger.error("GPU AprilTag detector rejected the frame/parameters", e);
+            return 0;
+        }
+    }
+
     private boolean ensureDetector(int width, int height) {
         boolean same =
                 handle != 0
@@ -80,28 +118,32 @@ public class AprilTagDetectionGpuPipe
         if (!GpuAprilTagJNI.isAvailable()) return false;
         int decimate =
                 effectiveDecimate(params.decimate(), width, height, params.fullResolution());
-        try {
-            handle =
-                    GpuAprilTagJNI.create(
-                            width,
-                            height,
-                            decimate,
-                            params.cpuThreads(),
-                            params.minWhiteBlackDiff(),
-                            params.minBlobSize(),
-                            params.refineEdges(),
-                            params.decodeSharpening(),
-                            params.family().getNativeName());
-        } catch (IllegalArgumentException e) {
-            logger.error("GPU AprilTag detector rejected the frame/parameters", e);
-            handle = 0;
+        boolean reused = false;
+        if (params.fullResolution()) {
+            var key = new SharedKey(width, height, params);
+            synchronized (sharedDetectors) {
+                var shared = sharedDetectors.get(key);
+                if (shared == null) {
+                    long created = createDetector(width, height, decimate);
+                    if (created == 0) return false;
+                    shared = new SharedDetector(created);
+                    sharedDetectors.put(key, shared);
+                } else {
+                    reused = true;
+                }
+                shared.users++;
+                handle = shared.handle;
+                sharedKey = key;
+            }
+        } else {
+            handle = createDetector(width, height, decimate);
         }
         if (handle == 0) return false;
         handleWidth = width;
         handleHeight = height;
         handleParams = params;
         logger.info(
-                "GPU AprilTag detector created for "
+                (reused ? "GPU AprilTag detector shared for " : "GPU AprilTag detector created for ")
                         + width
                         + "x"
                         + height
@@ -116,10 +158,20 @@ public class AprilTagDetectionGpuPipe
     }
 
     private void releaseHandle() {
-        if (handle != 0) {
+        if (handle == 0) return;
+        if (sharedKey != null) {
+            synchronized (sharedDetectors) {
+                var shared = sharedDetectors.get(sharedKey);
+                if (shared != null && --shared.users == 0) {
+                    GpuAprilTagJNI.destroy(shared.handle);
+                    sharedDetectors.remove(sharedKey);
+                }
+            }
+            sharedKey = null;
+        } else {
             GpuAprilTagJNI.destroy(handle);
-            handle = 0;
         }
+        handle = 0;
     }
 
     @Override

@@ -192,8 +192,10 @@ struct Grabber {
   int latest = -1;  // newest filled buffer, held (not queued)
   int64_t latestTimeUs = 0;
   uint64_t latestSeq = 0;
-  int inUse = -1;  // buffer grab() is converting
-  uint64_t returnedSeq = 0;
+  int inUse = -1;  // buffer grab() is converting; one conversion at a time
+  // Per reader (0: the camera's own pipeline; more from addConsumer), the
+  // sequence number of the last frame it was given.
+  std::vector<uint64_t> returnedSeqs{0};
   std::string error;
   // Set by V4l2LatestFrame.setGpu: convert on the GPU into pinned frames.
   std::atomic<const PhotonGpuCaptureOps*> gpu{nullptr};
@@ -485,26 +487,30 @@ Java_org_photonvision_jni_V4l2LatestFrame_setGpu
  * Method:    grab
  * Signature: (JJD)J
  */
-JNIEXPORT jlong JNICALL
-Java_org_photonvision_jni_V4l2LatestFrame_grab
-  (JNIEnv*, jclass, jlong handle, jlong matPtr, jdouble timeout)
-{
-  auto* g = reinterpret_cast<Grabber*>(handle);
-  auto* out = reinterpret_cast<cv::Mat*>(matPtr);
+// The newest frame reader `consumer` has not had yet, converted into `out`.
+// Every reader gets its own conversion (about 0.3 ms on the GPU) rather than a
+// frame another reader holds: PhotonVision's stream thread may draw on its
+// frames. Conversions run one at a time, so one held buffer (inUse) suffices
+// and the capture thread's requeueing logic is unchanged.
+static jlong GrabFor(Grabber* g, int consumer, cv::Mat* out, double timeout) {
   std::unique_lock lock{g->mutex};
+  if (consumer < 0 || static_cast<size_t>(consumer) >= g->returnedSeqs.size()) {
+    return 0;
+  }
   auto deadline = std::chrono::steady_clock::now() +
                   std::chrono::duration_cast<std::chrono::steady_clock::duration>(
                       std::chrono::duration<double>(timeout));
-  // A frame newer than the last one handed out.
+  // A frame newer than the last one this reader had, and no conversion in
+  // progress for another reader.
   if (!g->cv.wait_until(lock, deadline, [&] {
-        return g->latest >= 0 && g->latestSeq > g->returnedSeq;
+        return g->latest >= 0 && g->latestSeq > g->returnedSeqs[consumer] && g->inUse < 0;
       })) {
     return 0;
   }
   int idx = g->latest;
   int fd = g->fd;
   g->inUse = idx;
-  g->returnedSeq = g->latestSeq;
+  g->returnedSeqs[consumer] = g->latestSeq;
   int64_t timeUs = g->latestTimeUs;
   Buffer buf = g->buffers[idx];
   lock.unlock();
@@ -544,6 +550,44 @@ Java_org_photonvision_jni_V4l2LatestFrame_grab
     Xioctl(fd, VIDIOC_QBUF, &q);  // a failure surfaces in the capture thread
   }
   return ok ? timeUs : 0;
+}
+
+JNIEXPORT jlong JNICALL
+Java_org_photonvision_jni_V4l2LatestFrame_grab
+  (JNIEnv*, jclass, jlong handle, jlong matPtr, jdouble timeout)
+{
+  return GrabFor(reinterpret_cast<Grabber*>(handle), 0, reinterpret_cast<cv::Mat*>(matPtr), timeout);
+}
+
+/*
+ * Class:     org_photonvision_jni_V4l2LatestFrame
+ * Method:    addConsumer
+ * Signature: (J)I
+ *
+ * Another reader of the same capture (a secondary feed): returns the id to
+ * pass to grabFor. Reader 0 is grab()'s.
+ */
+JNIEXPORT jint JNICALL
+Java_org_photonvision_jni_V4l2LatestFrame_addConsumer
+  (JNIEnv*, jclass, jlong handle)
+{
+  auto* g = reinterpret_cast<Grabber*>(handle);
+  std::scoped_lock lock{g->mutex};
+  g->returnedSeqs.push_back(0);
+  return static_cast<jint>(g->returnedSeqs.size() - 1);
+}
+
+/*
+ * Class:     org_photonvision_jni_V4l2LatestFrame
+ * Method:    grabFor
+ * Signature: (JIJD)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_photonvision_jni_V4l2LatestFrame_grabFor
+  (JNIEnv*, jclass, jlong handle, jint consumer, jlong matPtr, jdouble timeout)
+{
+  return GrabFor(reinterpret_cast<Grabber*>(handle), consumer, reinterpret_cast<cv::Mat*>(matPtr),
+                 timeout);
 }
 
 /*

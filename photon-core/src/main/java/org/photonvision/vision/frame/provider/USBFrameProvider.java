@@ -56,6 +56,8 @@ public class USBFrameProvider extends CpuImageProcessor {
             !"0".equals(System.getenv("PHOTONVISION_Y16_LATEST_FRAME"));
 
     private long latestFrame = 0;
+    // latestFrame as published to secondary feeds of this camera (SharedCaptures)
+    private SharedCaptures.Capture sharedCapture = null;
 
     @SuppressWarnings("SpellCheckingInspection")
     public USBFrameProvider(
@@ -242,6 +244,10 @@ public class USBFrameProvider extends CpuImageProcessor {
                 logger.info(
                         "Y16: GPU conversion " + (on ? "on" : "unavailable") + " for " + camera.getPath());
             }
+            // Secondary feeds of this camera read the same capture.
+            sharedCapture =
+                    SharedCaptures.register(
+                            sharedPath(), latestFrame, () -> settables.getFrameStaticProperties());
         }
         var gray = new Mat();
         long captureTimeUs =
@@ -263,6 +269,10 @@ public class USBFrameProvider extends CpuImageProcessor {
                 captureTimeUs * 1000);
     }
 
+    private String sharedPath() {
+        return settables.getConfiguration().matchedCameraInfo.uniquePath();
+    }
+
     @Override
     public String getName() {
         return "USBFrameProvider - " + cvSink.getName();
@@ -270,6 +280,10 @@ public class USBFrameProvider extends CpuImageProcessor {
 
     @Override
     public void release() {
+        if (sharedCapture != null) {
+            SharedCaptures.unregister(sharedPath(), sharedCapture); // waits out any reader
+            sharedCapture = null;
+        }
         if (latestFrame != 0) {
             V4l2LatestFrame.destroy(latestFrame);
             latestFrame = 0;

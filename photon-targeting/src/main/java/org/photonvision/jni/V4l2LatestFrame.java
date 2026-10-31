@@ -53,6 +53,26 @@ public class V4l2LatestFrame {
      */
     public static native boolean setGpu(long handle, long captureOps);
 
+    /**
+     * Register another reader of this capture (a secondary feed of the same camera). Each reader
+     * gets every newest frame once, in its own buffer.
+     *
+     * @param handle From {@link #create}.
+     * @return The reader id for {@link #grabFor}; {@link #grab} is reader 0.
+     */
+    public static native int addConsumer(long handle);
+
+    /**
+     * {@link #grab} for reader {@code consumer}.
+     *
+     * @param handle From {@link #create}.
+     * @param consumer From {@link #addConsumer}.
+     * @param matPtr Native address of the destination cv::Mat.
+     * @param timeoutSeconds How long to wait for a frame this reader has not had.
+     * @return The frame's capture time in microseconds (wpi::Now()'s timebase); 0 on timeout.
+     */
+    public static native long grabFor(long handle, int consumer, long matPtr, double timeoutSeconds);
+
     /** The most recent attach/capture problem, for logging; empty if none. */
     public static native String lastError(long handle);
 

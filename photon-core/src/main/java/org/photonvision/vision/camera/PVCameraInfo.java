@@ -33,7 +33,8 @@ import java.util.Objects;
 @JsonSubTypes({
     @JsonSubTypes.Type(value = PVCameraInfo.PVUsbCameraInfo.class),
     @JsonSubTypes.Type(value = PVCameraInfo.PVCSICameraInfo.class),
-    @JsonSubTypes.Type(value = PVCameraInfo.PVFileCameraInfo.class)
+    @JsonSubTypes.Type(value = PVCameraInfo.PVFileCameraInfo.class),
+    @JsonSubTypes.Type(value = PVCameraInfo.PVSecondaryFeedInfo.class)
 })
 public sealed interface PVCameraInfo {
     /**
@@ -286,6 +287,87 @@ public sealed interface PVCameraInfo {
         @Override
         public String toString() {
             return "PVFileCameraInfo[type=" + type() + ", filename=" + name + ", path='" + path + "']";
+        }
+    }
+
+    /**
+     * A second feed from a camera that another VisionModule captures: the same frames, with its
+     * own pipeline, frame rate and NetworkTables name -- for example a full-resolution AprilTag
+     * search at a few fps beside the camera's own pipeline. The frames come from the parent's
+     * newest-frame capture (V4l2LatestFrame, Y16 sources); the parent owns the device and its
+     * controls. Create one through /api/utils/assignUnmatchedCamera with {"cameraInfo":
+     * {"PVSecondaryFeedInfo": {"parentPath": <the parent's uniquePath>, "name": ..., "maxFps":
+     * ...}}}.
+     */
+    @JsonTypeName("PVSecondaryFeedInfo")
+    public static final class PVSecondaryFeedInfo implements PVCameraInfo {
+        public final String parentPath;
+        public final String name;
+        public final double maxFps;
+
+        @JsonCreator
+        public PVSecondaryFeedInfo(
+                @JsonProperty("parentPath") String parentPath,
+                @JsonProperty("name") String name,
+                @JsonProperty("maxFps") double maxFps) {
+            this.parentPath = parentPath;
+            this.name = name != null && !name.isBlank() ? name : defaultName(parentPath);
+            this.maxFps = maxFps > 0 ? maxFps : 5;
+        }
+
+        private static String defaultName(String parentPath) {
+            if (parentPath == null) return "secondary";
+            return parentPath.substring(parentPath.lastIndexOf('/') + 1) + "-secondary";
+        }
+
+        @Override
+        public String path() {
+            return uniquePath();
+        }
+
+        @Override
+        public String name() {
+            return name;
+        }
+
+        @Override
+        public String uniquePath() {
+            return parentPath + "#" + name;
+        }
+
+        @Override
+        public String[] otherPaths() {
+            return new String[0];
+        }
+
+        @Override
+        public CameraType type() {
+            return CameraType.SecondaryFeed;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof PVSecondaryFeedInfo info)) return false;
+            return Objects.equals(parentPath, info.parentPath) && Objects.equals(name, info.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(parentPath, name);
+        }
+
+        @Override
+        public String toString() {
+            return "PVSecondaryFeedInfo[type="
+                    + type()
+                    + ", parentPath='"
+                    + parentPath
+                    + "', name="
+                    + name
+                    + ", maxFps="
+                    + maxFps
+                    + "]";
         }
     }
 
