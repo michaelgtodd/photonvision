@@ -81,6 +81,12 @@ public class FileSaveFrameConsumer implements Consumer<CVMat> {
         accept(image, new Date());
     }
 
+    /** Whether a snapshot has been requested and not yet written. */
+    public boolean isSavePending() {
+        long currentCount = saveFrameEntry.get();
+        return currentCount != -1 && savedImagesCount < currentCount;
+    }
+
     public void accept(CVMat image, Date now) {
         long currentCount = saveFrameEntry.get();
 

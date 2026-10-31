@@ -45,6 +45,15 @@ public class MJPGFrameConsumer implements AutoCloseable {
         this(name, 320, 240, port);
     }
 
+    /**
+     * Whether any client is streaming from this server. cscore enables a source while at least
+     * one of its sinks is enabled, and the MJPEG server enables its sink only while a client is
+     * connected.
+     */
+    public boolean hasViewers() {
+        return cvSource != null && cvSource.isEnabled();
+    }
+
     public void accept(CVMat image) {
         long now = MathUtils.wpiNanoTime();
 

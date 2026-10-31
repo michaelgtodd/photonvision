@@ -50,6 +50,10 @@
 #include <climits>
 #include <condition_variable>
 #include <cstdint>
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -336,6 +340,22 @@ Java_org_photonvision_jni_V4l2LatestFrame_create
   return reinterpret_cast<jlong>(g);
 }
 
+// Keeps the top 8 bits of each 16-bit sample. The capture buffer is the
+// driver's uncached mmap, which the CPU reads at about 1 GB/s: cv::Mat::convertTo
+// (scaled, through float) took 18.9 ms per 1920x1200 frame from it, this 4.5 ms
+// (experiments/apriltag-rate/bench_capture_read.c in the bench repository).
+static void NarrowTop8(const uint16_t* in, uint8_t* out, size_t n) {
+  size_t i = 0;
+#if defined(__ARM_NEON)
+  for (; i + 16 <= n; i += 16) {
+    uint16x8_t a = vld1q_u16(in + i);
+    uint16x8_t b = vld1q_u16(in + i + 8);
+    vst1q_u8(out + i, vcombine_u8(vshrn_n_u16(a, 8), vshrn_n_u16(b, 8)));
+  }
+#endif
+  for (; i < n; i++) out[i] = static_cast<uint8_t>(in[i] >> 8);
+}
+
 /*
  * Class:     org_photonvision_jni_V4l2LatestFrame
  * Method:    grab
@@ -368,8 +388,9 @@ Java_org_photonvision_jni_V4l2LatestFrame_grab
   // 10 bits MSB-aligned in 16: keep the top 8.
   bool ok = buf.length >= static_cast<size_t>(g->width) * g->height * 2;
   if (ok) {
-    cv::Mat in(g->height, g->width, CV_16UC1, buf.data);
-    in.convertTo(*out, CV_8U, 1.0 / 256.0);
+    out->create(g->height, g->width, CV_8UC1);
+    NarrowTop8(static_cast<const uint16_t*>(buf.data), out->ptr<uint8_t>(),
+               static_cast<size_t>(g->width) * g->height);
   }
 
   lock.lock();

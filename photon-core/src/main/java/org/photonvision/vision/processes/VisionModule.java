@@ -281,7 +281,15 @@ public class VisionModule {
 
                     this.shouldRun = false;
                 }
-                if (shouldRun) {
+                // Resizing, drawing and handing frames to cscore cost CPU on every frame; skip
+                // them when no client is watching either stream and no snapshot is waiting.
+                if (shouldRun && !streamWanted()) {
+                    try {
+                        m_frame.release();
+                    } catch (Exception e) {
+                        logger.error("Exception freeing frames", e);
+                    }
+                } else if (shouldRun) {
                     try {
                         CVPipelineResult osr = outputStreamPipeline.process(m_frame, settings, targets);
                         consumeResults(m_frame, targets);
@@ -306,6 +314,13 @@ public class VisionModule {
                 }
             }
         }
+    }
+
+    private boolean streamWanted() {
+        return inputVideoStreamer.hasViewers()
+                || outputVideoStreamer.hasViewers()
+                || inputFrameSaver.isSavePending()
+                || outputFrameSaver.isSavePending();
     }
 
     public void start() {

@@ -243,10 +243,12 @@ public class USBFrameProvider extends CpuImageProcessor {
             logger.error("No new Y16 frame: " + V4l2LatestFrame.lastError(latestFrame));
             return new CapturedFrame(new CVMat(), settables.getFrameStaticProperties(), 0);
         }
-        var bgr = new Mat();
-        Imgproc.cvtColor(gray, bgr, Imgproc.COLOR_GRAY2BGR);
+        // The heads are monochrome: the "colour" image is a second header on the grey pixels
+        // (refcounted, no copy) rather than a 3-channel copy of every frame. Streams and
+        // snapshots draw on their own resized or converted copies (OutputStreamPipeline).
+        var color = gray.submat(0, gray.rows(), 0, gray.cols());
         return new CapturedFrame(
-                new CVMat(bgr),
+                new CVMat(color),
                 new CVMat(gray),
                 settables.getFrameStaticProperties(),
                 captureTimeUs * 1000);
