@@ -54,6 +54,7 @@
 #include <arm_neon.h>
 #endif
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -342,7 +343,30 @@ bool Attach(Grabber& g) {
   return true;
 }
 
+// The VI driver (nvidia-oot vi5_fops.c, vi5_capture_dequeue) hands a capture
+// request that times out (2.5 s without a frame) back to videobuf2 as QUEUED:
+// it is then on neither the driver's capture list nor the done list, so it is
+// lost to both sides until the stream is stopped. Once every buffer has timed
+// out the stream is silent for good, even after frames resume (seen on two
+// heads at PhotonVision start-up; reproduced by pausing a sensor for 12 s).
+// So restart the stream whenever no frame has come for kStall, before the
+// driver's timeout can fire; that is far longer than any frame interval the
+// heads run at. After STREAMON the sensor and the deserializer pipe are
+// programmed before the first frame, hence the longer first wait.
+constexpr auto kStall = std::chrono::milliseconds(1000);
+constexpr auto kFirstFrame = std::chrono::milliseconds(2000);
+
+long long Ms(std::chrono::steady_clock::duration d) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+}
+
 void Run(Grabber* g) {
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point started;    // this stream's STREAMON
+  Clock::time_point lastFrame;  // its newest good frame
+  bool sawFrame = false;
+  bool restarted = false;  // this stream is a watchdog restart
+  unsigned restarts = 0;
   while (g->running) {
     int fd;
     size_t nbuf;
@@ -354,7 +378,20 @@ void Run(Grabber* g) {
     if (fd < 0) {
       if (!Attach(*g)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        continue;
       }
+      started = Clock::now();
+      sawFrame = false;
+      continue;
+    }
+
+    Clock::time_point now = Clock::now();
+    if (now - (sawFrame ? lastFrame : started) > (sawFrame ? kStall : kFirstFrame)) {
+      ++restarts;
+      restarted = true;
+      std::fprintf(stderr, "V4l2LatestFrame: %s: no frame for %lld ms, restarting the stream (restart %u)\n",
+                   g->device.c_str(), Ms(now - (sawFrame ? lastFrame : started)), restarts);
+      Detach(*g, "no frame; restarting the stream");
       continue;
     }
 
@@ -392,6 +429,14 @@ void Run(Grabber* g) {
     int64_t bufUs = static_cast<int64_t>(b.timestamp.tv_sec) * 1000000 +
                     b.timestamp.tv_usec;
     int64_t timeUs = static_cast<int64_t>(wpi::Now()) - (MonotonicUs() - bufUs);
+
+    lastFrame = Clock::now();
+    if (!sawFrame) {
+      sawFrame = true;
+      std::fprintf(stderr, "V4l2LatestFrame: %s: first frame %lld ms after STREAMON%s\n", g->device.c_str(),
+                   Ms(lastFrame - started), restarted ? " (watchdog restart)" : "");
+      restarted = false;
+    }
 
     int requeue = -1;
     {
