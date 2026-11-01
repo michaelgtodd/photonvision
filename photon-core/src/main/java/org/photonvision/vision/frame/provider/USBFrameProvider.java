@@ -17,12 +17,6 @@
 
 package org.photonvision.vision.frame.provider;
 
-import edu.wpi.first.cameraserver.CameraServer;
-import edu.wpi.first.cscore.CvSink;
-import edu.wpi.first.cscore.UsbCamera;
-import edu.wpi.first.cscore.VideoMode;
-import edu.wpi.first.util.PixelFormat;
-import edu.wpi.first.util.RawFrame;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.imgproc.Imgproc;
@@ -33,6 +27,12 @@ import org.photonvision.jni.GpuAprilTagJNI;
 import org.photonvision.jni.V4l2LatestFrame;
 import org.photonvision.vision.opencv.CVMat;
 import org.photonvision.vision.processes.VisionSourceSettables;
+import org.wpilib.util.PixelFormat;
+import org.wpilib.util.RawFrame;
+import org.wpilib.vision.camera.CvSink;
+import org.wpilib.vision.camera.UsbCamera;
+import org.wpilib.vision.camera.VideoMode;
+import org.wpilib.vision.stream.CameraServer;
 
 public class USBFrameProvider extends CpuImageProcessor {
     private final Logger logger;
@@ -48,9 +48,9 @@ public class USBFrameProvider extends CpuImageProcessor {
     private long lastTime = 0;
 
     /**
-     * Y16 sources are captured newest-frame-only on cscore's own descriptor (V4l2LatestFrame)
-     * unless PHOTONVISION_Y16_LATEST_FRAME=0: cscore copies every frame it dequeues, and at sensor
-     * rates well above what the pipeline processes that copy dominated the CPU.
+     * Y16 sources are captured newest-frame-only on cscore's own descriptor (V4l2LatestFrame) unless
+     * PHOTONVISION_Y16_LATEST_FRAME=0: cscore copies every frame it dequeues, and at sensor rates
+     * well above what the pipeline processes that copy dominated the CPU.
      */
     private static final boolean Y16_LATEST_FRAME =
             !"0".equals(System.getenv("PHOTONVISION_Y16_LATEST_FRAME"));
@@ -74,18 +74,6 @@ public class USBFrameProvider extends CpuImageProcessor {
         this.connectedCallback = connectedCallback;
     }
 
-    @Override
-    public boolean checkCameraConnected() {
-        boolean connected = camera.isConnected();
-
-        if (!cameraPropertiesCached && connected) {
-            logger.info("Camera connected! running callback");
-            onCameraConnected();
-        }
-
-        return connected;
-    }
-
     final double CSCORE_DEFAULT_FRAME_TIMEOUT = 1.0 / 4.0;
 
     @Override
@@ -96,18 +84,18 @@ public class USBFrameProvider extends CpuImageProcessor {
 
         // 16-bit grey sources are converted here, never by cscore (see grabY16)
         var currentMode = settables.getCurrentVideoMode();
-        if (currentMode != null && currentMode.pixelFormat == PixelFormat.kY16) {
+        if (currentMode != null && currentMode.pixelFormat == PixelFormat.Y16) {
             return grabY16(currentMode);
         }
 
         if (m_blockForFrames) {
             // We allocate memory so we don't fill a Mat in use by another thread (memory model is easier)
             var mat = new CVMat();
-            // This is from wpi::Now, or WPIUtilJNI.now(). The epoch from grabFrame is uS since
+            // This is from wpi::nt::Now, or WPIUtilJNI.now(). The epoch from grabFrame is nS since
             // Hal::initialize was called
             // TODO - under the hood, this incurs an extra copy. We should avoid this, if we
             // can.
-            long captureTimeNs = cvSink.grabFrame(mat.getMat(), CSCORE_DEFAULT_FRAME_TIMEOUT) * 1000;
+            long captureTimeNs = cvSink.grabFrame(mat.getMat(), CSCORE_DEFAULT_FRAME_TIMEOUT);
 
             if (captureTimeNs == 0) {
                 var error = cvSink.getError();
@@ -126,18 +114,18 @@ public class USBFrameProvider extends CpuImageProcessor {
                     cameraMode.height,
                     // hard-coded 3 channel
                     cameraMode.width * 3,
-                    PixelFormat.kBGR);
+                    PixelFormat.BGR);
 
-            // This is from wpi::Now, or WPIUtilJNI.now(). The epoch from grabFrame is uS since
+            // This is from wpi::nt::Now, or WPIUtilJNI.now(). The epoch from grabFrame is nS since
             // Hal::initialize was called
-            long captureTimeUs =
+            long captureTimeNs =
                     CscoreExtras.grabRawSinkFrameTimeoutLastTime(
                             cvSink.getHandle(), frame.getNativeObj(), CSCORE_DEFAULT_FRAME_TIMEOUT, lastTime);
-            lastTime = captureTimeUs;
+            lastTime = captureTimeNs;
 
             CVMat ret;
 
-            if (captureTimeUs == 0) {
+            if (captureTimeNs == 0) {
                 var error = cvSink.getError();
                 logger.error("Error grabbing image: " + error);
 
@@ -150,7 +138,7 @@ public class USBFrameProvider extends CpuImageProcessor {
                 ret = new CVMat(mat, frame);
             }
 
-            return new CapturedFrame(ret, settables.getFrameStaticProperties(), captureTimeUs * 1000);
+            return new CapturedFrame(ret, settables.getFrameStaticProperties(), captureTimeNs);
         }
     }
 
@@ -170,16 +158,16 @@ public class USBFrameProvider extends CpuImageProcessor {
             return grabY16Latest(mode);
         }
         try (var frame = new RawFrame()) {
-            frame.setInfo(mode.width, mode.height, mode.width * 2, PixelFormat.kY16);
+            frame.setInfo(mode.width, mode.height, mode.width * 2, PixelFormat.Y16);
 
-            // This is from wpi::Now, or WPIUtilJNI.now(). The epoch from grabFrame is uS since
+            // This is from wpi::nt::Now, or WPIUtilJNI.now(). The epoch from grabFrame is nS since
             // Hal::initialize was called
-            long captureTimeUs =
+            long captureTimeNs =
                     CscoreExtras.grabRawSinkFrameTimeoutLastTime(
                             cvSink.getHandle(), frame.getNativeObj(), CSCORE_DEFAULT_FRAME_TIMEOUT, lastTime);
-            lastTime = captureTimeUs;
+            lastTime = captureTimeNs;
 
-            if (captureTimeUs == 0) {
+            if (captureTimeNs == 0) {
                 logger.error("Error grabbing image: " + cvSink.getError());
                 return new CapturedFrame(new CVMat(), settables.getFrameStaticProperties(), 0);
             }
@@ -192,7 +180,7 @@ public class USBFrameProvider extends CpuImageProcessor {
                             frame.getNativeObj(),
                             mode.width,
                             mode.height,
-                            PixelFormat.kY16.getValue(),
+                            PixelFormat.Y16.getValue(),
                             CvType.CV_16UC1);
             if (rawPtr == 0) {
                 logger.error(
@@ -216,10 +204,7 @@ public class USBFrameProvider extends CpuImageProcessor {
             // Both go out: BGR for drawing and streaming, grey for greyscale pipelines (which
             // would otherwise convert the BGR straight back)
             return new CapturedFrame(
-                    new CVMat(bgr),
-                    new CVMat(gray),
-                    settables.getFrameStaticProperties(),
-                    captureTimeUs * 1000);
+                    new CVMat(bgr), new CVMat(gray), settables.getFrameStaticProperties(), captureTimeNs);
         }
     }
 
@@ -227,9 +212,9 @@ public class USBFrameProvider extends CpuImageProcessor {
      * The newest frame from a Y16 source, as 8-bit grey, without cscore copying every frame.
      *
      * <p>Disabling the sink stops cscore streaming (it keeps the device open, its buffers allocated
-     * and its controls working); V4l2LatestFrame then streams on that same descriptor, keeps only
-     * the newest filled buffer and converts it here. Frames the pipeline does not get to are
-     * requeued untouched.
+     * and its controls working); V4l2LatestFrame then streams on that same descriptor, keeps only the
+     * newest filled buffer and converts it here. Frames the pipeline does not get to are requeued
+     * untouched.
      */
     private CapturedFrame grabY16Latest(VideoMode mode) {
         if (latestFrame == 0) {
@@ -250,10 +235,9 @@ public class USBFrameProvider extends CpuImageProcessor {
                             sharedPath(), latestFrame, () -> settables.getFrameStaticProperties());
         }
         var gray = new Mat();
-        long captureTimeUs =
-                V4l2LatestFrame.grab(
-                        latestFrame, gray.getNativeObjAddr(), CSCORE_DEFAULT_FRAME_TIMEOUT);
-        if (captureTimeUs == 0) {
+        long captureTimeNs =
+                V4l2LatestFrame.grab(latestFrame, gray.getNativeObjAddr(), CSCORE_DEFAULT_FRAME_TIMEOUT);
+        if (captureTimeNs == 0) {
             gray.release();
             logger.error("No new Y16 frame: " + V4l2LatestFrame.lastError(latestFrame));
             return new CapturedFrame(new CVMat(), settables.getFrameStaticProperties(), 0);
@@ -263,10 +247,7 @@ public class USBFrameProvider extends CpuImageProcessor {
         // snapshots draw on their own resized or converted copies (OutputStreamPipeline).
         var color = gray.submat(0, gray.rows(), 0, gray.cols());
         return new CapturedFrame(
-                new CVMat(color),
-                new CVMat(gray),
-                settables.getFrameStaticProperties(),
-                captureTimeUs * 1000);
+                new CVMat(color), new CVMat(gray), settables.getFrameStaticProperties(), captureTimeNs);
     }
 
     private String sharedPath() {
@@ -295,13 +276,15 @@ public class USBFrameProvider extends CpuImageProcessor {
 
     @Override
     public void onCameraConnected() {
+        logger.info("Camera connected! running callback");
+
         super.onCameraConnected();
 
         this.connectedCallback.run();
     }
 
     @Override
-    public boolean isConnected() {
+    public boolean checkCameraConnected() {
         return camera.isConnected();
     }
 

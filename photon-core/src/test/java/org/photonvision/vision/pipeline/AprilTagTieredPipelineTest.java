@@ -28,7 +28,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.photonvision.common.LoadJNI;
-import org.photonvision.common.configuration.ConfigManager;
+import org.photonvision.common.configuration.ConfigProvider;
 import org.photonvision.vision.apriltag.AprilTagFamily;
 import org.photonvision.vision.apriltag.TieredDetectionTest;
 import org.photonvision.vision.camera.QuirkyCamera;
@@ -44,7 +44,7 @@ public class AprilTagTieredPipelineTest {
     @BeforeAll
     public static void setup() {
         LoadJNI.loadLibraries();
-        ConfigManager.getInstance().load();
+        ConfigProvider.getInstance().load();
     }
 
     static Set<Integer> ids(CVPipelineResult r) {

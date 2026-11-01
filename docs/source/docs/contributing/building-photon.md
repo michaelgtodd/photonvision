@@ -8,15 +8,21 @@ This section contains the build instructions from the source code available at [
 
 **Java Development Kit:**
 
- This project requires Java Development Kit (JDK) 17 to be compiled. This is the same Java version that comes with WPILib for 2026+. **Windows Users must use the JDK that ships with WPILib.** For other platforms, you can follow the instructions to install JDK 17 for your platform [here](https://bell-sw.com/pages/downloads/#jdk-17-lts).
+ Building PhotonVision requires Java Development Kit (JDK) 25. *Windows Users must use the JDK that ships with WPILib.* See the {ref}`Installing Java <java-on-windows>` section of the Windows PC installation instructions for configuring Windows to use the WPILib JDK.
+
+ For other platforms, you can follow the instructions to install JDK 25 for your platform [here](https://adoptium.net/temurin/releases?version=25).
 
 **Node JS:**
 
- The UI is written in Node JS. To compile the UI, Node 22 or later is required. To install Node JS, follow the instructions for your platform [on the official Node JS website](https://nodejs.org/en/download/).
+ The UI is written in Node JS. To compile the UI, Node 24 or later is required. To install Node JS, follow the instructions for your platform [on the official Node JS website](https://nodejs.org/en/download/).
 
 **pnpm:**
 
  [pnpm](https://pnpm.io/) is the package manager used to download dependencies for the UI. To install pnpm, follow [the instructions on the official pnpm website](https://pnpm.io/installation).
+
+**uv:**
+
+ [uv](https://docs.astral.sh/uv/) is the package manager used to build and install PhotonLibPy. To install uv, follow [the instructions on the official uv website](https://docs.astral.sh/uv/getting-started/installation/).
 
 **Cross-Compilation Toolchains (Optional):**
 
@@ -46,6 +52,30 @@ In the photon-client directory:
 ```bash
 pnpm install
 ```
+
+### Building the UI
+
+In order to properly build UI changes before running the project, run the following `gradlew` command in the project's root directory:
+
+```{eval-rst}
+.. tab-set::
+
+   .. tab-item:: Linux
+      :sync: linux
+
+      ``./gradlew buildAndCopyUI``
+
+   .. tab-item:: macOS
+      :sync: macos
+
+      ``./gradlew buildAndCopyUI``
+
+   .. tab-item:: Windows (cmd)
+      :sync: windows
+
+      ``gradlew buildAndCopyUI``
+```
+
 
 ### Using hot reload on the UI
 
@@ -294,12 +324,15 @@ PhotonLib must first be published to your local maven repository. This will also
 
 ### Running Python
 
-PhotonLibPy must first be built into a wheel.
+PhotonLibPy must first be built into a wheel and installed.
 
 ```
 > cd photon-lib/py
-> buildAndTest.bat
+> uv build
+> uv pip install dist/*.whl
 ```
+
+Run the test suite with `pytest`.
 
 Then, you must enable using the development wheels. robotpy will use pip behind the scenes, and this bat file tells pip about your development artifacts.
 

@@ -31,7 +31,8 @@ interface StateStore {
   currentCameraUniqueName: string;
   networkUsageHistory: NetworkUsageEntry[];
 
-  backendResults: Record<number, PipelineResult>;
+  // Key is a string, although often used as an index, because we need to reference using the camera unique name at times.
+  backendResults: Record<string, PipelineResult>;
   multitagResultBuffer: Record<string, MultitagResult[]>;
 
   colorPickingMode: boolean;
@@ -39,9 +40,13 @@ interface StateStore {
   calibrationData: {
     imageCount: number;
     videoFormatIndex: number;
-    minimumImageCount: number;
-    hasEnoughImages: boolean;
+    autoCalibrate: boolean;
+    // Null when the backend reports no board visible during auto calibration
+    movedFarEnough: boolean | null;
   };
+
+  // UI-only flag to allow calibration with fewer than the recommended number of snapshots
+  bypassMinCalibrationImages: boolean;
 
   snackbarData: {
     show: boolean;
@@ -89,9 +94,11 @@ export const useStateStore = defineStore("state", {
       calibrationData: {
         imageCount: 0,
         videoFormatIndex: 0,
-        minimumImageCount: 12,
-        hasEnoughImages: false
+        autoCalibrate: false,
+        movedFarEnough: null
       },
+
+      bypassMinCalibrationImages: false,
 
       snackbarData: {
         show: false,
@@ -162,8 +169,8 @@ export const useStateStore = defineStore("state", {
       this.calibrationData = {
         imageCount: data.count,
         videoFormatIndex: data.videoModeIndex,
-        minimumImageCount: data.minCount,
-        hasEnoughImages: data.hasEnough
+        autoCalibrate: data.autoCalibrate ?? false,
+        movedFarEnough: data.movedFarEnough ?? null
       };
     },
     updateDiscoveredCameras(data: VsmState) {

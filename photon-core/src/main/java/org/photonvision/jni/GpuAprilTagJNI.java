@@ -17,10 +17,10 @@
 
 package org.photonvision.jni;
 
-import edu.wpi.first.apriltag.AprilTagDetection;
 import java.io.File;
 import org.photonvision.common.logging.LogGroup;
 import org.photonvision.common.logging.Logger;
+import org.wpilib.vision.apriltag.AprilTagDetection;
 
 /**
  * Team 971's CUDA AprilTag detector, from the photon-gpu library built on the Jetson
@@ -100,8 +100,8 @@ public class GpuAprilTagJNI {
     public static native void destroy(long handle);
 
     /**
-     * The address of libphotongpu's zero-copy capture table, for {@link V4l2LatestFrame#setGpu}.
-     * Only valid once {@link #isAvailable()} has returned true.
+     * The address of libphotongpu's zero-copy capture table, for {@link V4l2LatestFrame#setGpu}. Only
+     * valid once {@link #isAvailable()} has returned true.
      */
     public static native long captureOps();
 }

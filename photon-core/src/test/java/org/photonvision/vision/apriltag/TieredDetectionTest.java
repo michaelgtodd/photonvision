@@ -20,8 +20,6 @@ package org.photonvision.vision.apriltag;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import edu.wpi.first.apriltag.AprilTagDetection;
-import edu.wpi.first.apriltag.AprilTagDetector;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -36,6 +34,8 @@ import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.objdetect.Objdetect;
 import org.photonvision.common.LoadJNI;
+import org.wpilib.vision.apriltag.AprilTagDetection;
+import org.wpilib.vision.apriltag.AprilTagDetector;
 
 /**
  * Tiers 2 and 3 on synthetic frames: small, blurred tag36h11 markers on a noisy 1920x1200 grey

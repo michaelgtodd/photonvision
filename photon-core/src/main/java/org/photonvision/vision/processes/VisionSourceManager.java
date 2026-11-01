@@ -17,7 +17,7 @@
 
 package org.photonvision.vision.processes;
 
-import edu.wpi.first.cscore.UsbCamera;
+import io.avaje.jsonb.Json;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -30,7 +30,7 @@ import java.util.stream.Stream;
 import org.photonvision.common.LoadJNI;
 import org.photonvision.common.LoadJNI.JNITypes;
 import org.photonvision.common.configuration.CameraConfiguration;
-import org.photonvision.common.configuration.ConfigManager;
+import org.photonvision.common.configuration.ConfigProvider;
 import org.photonvision.common.dataflow.DataChangeService;
 import org.photonvision.common.dataflow.events.OutgoingUIEvent;
 import org.photonvision.common.dataflow.networktables.NetworkTablesManager;
@@ -48,6 +48,7 @@ import org.photonvision.vision.camera.PVCameraInfo;
 import org.photonvision.vision.camera.SecondaryVisionSource;
 import org.photonvision.vision.camera.USBCameras.USBCameraSource;
 import org.photonvision.vision.camera.csi.LibcameraGpuSource;
+import org.wpilib.vision.camera.UsbCamera;
 
 /**
  * This class manages starting up VisionModules for serialized devices ({@link
@@ -60,7 +61,7 @@ import org.photonvision.vision.camera.csi.LibcameraGpuSource;
  *
  * <p>We now require user interaction for pretty much every operation this undertakes.
  */
-public class VisionSourceManager {
+public class VisionSourceManager implements AutoCloseable {
     private static final Logger logger = new Logger(VisionSourceManager.class, LogGroup.Camera);
 
     private static final List<String> deviceBlacklist = List.of("bcm2835-isp");
@@ -73,7 +74,7 @@ public class VisionSourceManager {
         return SingletonHolder.INSTANCE;
     }
 
-    // Jackson does use these members even if your IDE claims otherwise
+    @Json
     public static class VisionSourceManagerState {
         public List<UICameraConfiguration> disabledConfigs;
         public List<PVCameraInfo> allConnectedCameras;
@@ -126,8 +127,7 @@ public class VisionSourceManager {
         deserializedConfigs.values().stream()
                 .filter(it -> !it.deactivated)
                 .map(this::loadVisionSourceFromCamConfig)
-                .map(vmm::addSource)
-                .forEach(VisionModule::start);
+                .forEach(vmm::addSource);
 
         // 3. write down all disabled sources for later
         deserializedConfigs.entrySet().stream()
@@ -171,16 +171,7 @@ public class VisionSourceManager {
 
         // transform the camera info all the way to a VisionModule and then start it
         var created =
-                deactivatedConfig
-                        .map(this::loadVisionSourceFromCamConfig)
-                        .map(vmm::addSource)
-                        .map(
-                                it -> {
-                                    it.start();
-                                    it.saveAndBroadcastAll();
-                                    return it;
-                                })
-                        .isPresent();
+                deactivatedConfig.map(this::loadVisionSourceFromCamConfig).map(vmm::addSource).isPresent();
 
         if (!created) {
             // Couldn't create a VM for this config - restore state
@@ -192,7 +183,7 @@ public class VisionSourceManager {
                 .publishEvent(
                         new OutgoingUIEvent<>(
                                 "fullsettings",
-                                UIPhotonConfiguration.programStateToUi(ConfigManager.getInstance().getConfig())));
+                                UIPhotonConfiguration.programStateToUi(ConfigProvider.getInstance().getConfig())));
 
         pushUiUpdate();
 
@@ -220,16 +211,14 @@ public class VisionSourceManager {
         }
 
         var source = loadVisionSourceFromCamConfig(new CameraConfiguration(cameraInfo));
-        var module = vmm.addSource(source);
-
-        module.start();
+        vmm.addSource(source);
 
         // We have a new camera! Tell the world about it
         DataChangeService.getInstance()
                 .publishEvent(
                         new OutgoingUIEvent<>(
                                 "fullsettings",
-                                UIPhotonConfiguration.programStateToUi(ConfigManager.getInstance().getConfig())));
+                                UIPhotonConfiguration.programStateToUi(ConfigProvider.getInstance().getConfig())));
 
         pushUiUpdate();
 
@@ -282,7 +271,7 @@ public class VisionSourceManager {
                 module.get().setCameraNickname(name);
             } else {
                 config.nickname = name;
-                ConfigManager.getInstance().saveModule(config, config.uniqueName);
+                ConfigProvider.getInstance().saveModule(config, config.uniqueName);
                 disabledChanged = true;
             }
         }
@@ -292,14 +281,14 @@ public class VisionSourceManager {
     public synchronized boolean deleteVisionSource(String uniqueName) {
         deactivateVisionSource(uniqueName);
         var config = disabledCameraConfigs.remove(uniqueName);
-        ConfigManager.getInstance().getConfig().removeCameraConfig(uniqueName);
-        ConfigManager.getInstance().saveToDisk();
+        ConfigProvider.getInstance().getConfig().removeCameraConfig(uniqueName);
+        ConfigProvider.getInstance().saveToDisk();
 
         DataChangeService.getInstance()
                 .publishEvent(
                         new OutgoingUIEvent<>(
                                 "fullsettings",
-                                UIPhotonConfiguration.programStateToUi(ConfigManager.getInstance().getConfig())));
+                                UIPhotonConfiguration.programStateToUi(ConfigProvider.getInstance().getConfig())));
         pushUiUpdate();
 
         return config != null;
@@ -312,9 +301,9 @@ public class VisionSourceManager {
                         .filter(module -> module.uniqueName().equals(uniqueName))
                         .findFirst()
                         .map(
-                                it -> {
-                                    vmm.removeModule(it);
-                                    return it.getCameraConfiguration();
+                                module -> {
+                                    module.getCameraConfiguration().deactivated = true;
+                                    return vmm.removeModule(module);
                                 });
 
         if (removedConfig.isEmpty()) {
@@ -573,5 +562,10 @@ public class VisionSourceManager {
 
     public List<VisionModule> getVisionModules() {
         return vmm.getModules();
+    }
+
+    @Override
+    public void close() {
+        vmm.close();
     }
 }

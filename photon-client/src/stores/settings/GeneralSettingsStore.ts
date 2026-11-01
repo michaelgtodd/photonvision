@@ -10,6 +10,7 @@ import { NetworkConnectionType } from "@/types/SettingTypes";
 import { useStateStore } from "@/stores/StateStore";
 import axios from "axios";
 import type { WebsocketSettingsUpdate } from "@/types/WebsocketDataTypes";
+import type { Field } from "@/types/PhotonTrackingTypes";
 import { ref } from "vue";
 
 interface GeneralSettingsStore {
@@ -17,7 +18,7 @@ interface GeneralSettingsStore {
   network: NetworkSettings;
   lighting: LightingSettings;
   metrics: MetricData;
-  currentFieldLayout;
+  currentFieldLayout: Field;
 }
 
 interface MetricsEntry {
@@ -117,11 +118,11 @@ export const useSettingsStore = defineStore("settings", {
       recvBitRate: undefined
     },
     currentFieldLayout: {
-      field: {
+      "field-dimensions": {
         length: 16.4592,
         width: 8.2296
       },
-      tags: []
+      "field-tags": []
     }
   }),
   getters: {
@@ -170,7 +171,10 @@ export const useSettingsStore = defineStore("settings", {
       };
       this.lighting = data.lighting;
       this.network = data.networkSettings;
-      this.currentFieldLayout = data.atfl;
+      this.currentFieldLayout = {
+        "field-dimensions": data.field["field-dimensions"],
+        "field-tags": data.field["field-tags"]
+      };
     },
     updateGeneralSettings(payload: Required<ConfigurableNetworkSettings>) {
       return axios.post("/settings/general", payload);
@@ -184,7 +188,7 @@ export const useSettingsStore = defineStore("settings", {
       const payload = {
         enabledLEDPercentage: brightness
       };
-      useStateStore().websocket?.send(payload, true);
+      useStateStore().websocket?.send(payload);
     }
   }
 });

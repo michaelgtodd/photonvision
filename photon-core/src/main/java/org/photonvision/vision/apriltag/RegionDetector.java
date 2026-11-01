@@ -17,14 +17,14 @@
 
 package org.photonvision.vision.apriltag;
 
-import edu.wpi.first.apriltag.AprilTagDetection;
-import edu.wpi.first.apriltag.AprilTagDetector;
 import java.util.ArrayList;
 import java.util.List;
 import org.opencv.core.Mat;
 import org.opencv.core.Rect;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
+import org.wpilib.vision.apriltag.AprilTagDetection;
+import org.wpilib.vision.apriltag.AprilTagDetector;
 
 /**
  * Full-resolution AprilTag detection on a region of a frame, with the results mapped back into

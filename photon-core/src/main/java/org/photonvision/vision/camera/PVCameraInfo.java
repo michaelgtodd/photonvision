@@ -17,34 +17,29 @@
 
 package org.photonvision.vision.camera;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonGetter;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.annotation.JsonTypeName;
-import edu.wpi.first.cscore.UsbCameraInfo;
+import io.avaje.jsonb.Json;
 import java.util.Arrays;
 import java.util.Objects;
+import org.wpilib.vision.camera.UsbCameraInfo;
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
-@JsonIgnoreProperties(ignoreUnknown = true)
-@JsonSubTypes({
-    @JsonSubTypes.Type(value = PVCameraInfo.PVUsbCameraInfo.class),
-    @JsonSubTypes.Type(value = PVCameraInfo.PVCSICameraInfo.class),
-    @JsonSubTypes.Type(value = PVCameraInfo.PVFileCameraInfo.class),
-    @JsonSubTypes.Type(value = PVCameraInfo.PVSecondaryFeedInfo.class)
-})
+@Json(typeProperty = "type")
+@Json.SubType(type = PVCameraInfo.PVUsbCameraInfo.class)
+@Json.SubType(type = PVCameraInfo.PVCSICameraInfo.class)
+@Json.SubType(type = PVCameraInfo.PVFileCameraInfo.class)
+@Json.SubType(
+        type = PVCameraInfo.PVSecondaryFeedInfo.class,
+        name = "PVCameraInfo.PVSecondaryFeedInfo")
 public sealed interface PVCameraInfo {
     /**
      * @return The path of the camera.
      */
+    @Json.Property("path")
     String path();
 
     /**
      * @return The base name of the camera aka the name as just ascii.
      */
+    @Json.Property("name")
     String name();
 
     /**
@@ -65,7 +60,7 @@ public sealed interface PVCameraInfo {
      *
      * @return The unique path of the camera
      */
-    @JsonGetter(value = "uniquePath")
+    @Json.Property("uniquePath")
     String uniquePath();
 
     String[] otherPaths();
@@ -83,16 +78,9 @@ public sealed interface PVCameraInfo {
         return this.equals((Object) other);
     }
 
-    @JsonTypeName("PVUsbCameraInfo")
     public static final class PVUsbCameraInfo extends UsbCameraInfo implements PVCameraInfo {
-        @JsonCreator
         public PVUsbCameraInfo(
-                @JsonProperty("dev") int dev,
-                @JsonProperty("path") String path,
-                @JsonProperty("name") String name,
-                @JsonProperty("otherPaths") String[] otherPaths,
-                @JsonProperty("vendorId") int vendorId,
-                @JsonProperty("productId") int productId) {
+                int dev, String path, String name, String[] otherPaths, int vendorId, int productId) {
             super(dev, path, name, otherPaths, vendorId, productId);
         }
 
@@ -136,7 +124,7 @@ public sealed interface PVCameraInfo {
             if (obj == null) return false;
             if (!(obj instanceof PVUsbCameraInfo info)) return false;
 
-            return super.name.equals(info.name)
+            return name().equals(info.name())
                     && super.vendorId == info.vendorId
                     && super.productId == info.productId
                     && uniquePath().equals(info.uniquePath());
@@ -169,14 +157,11 @@ public sealed interface PVCameraInfo {
         }
     }
 
-    @JsonTypeName("PVCSICameraInfo")
     public static final class PVCSICameraInfo implements PVCameraInfo {
         public final String path;
         public final String baseName;
 
-        @JsonCreator
-        public PVCSICameraInfo(
-                @JsonProperty("path") String path, @JsonProperty("baseName") String baseName) {
+        public PVCSICameraInfo(String path, String baseName) {
             this.path = path;
             this.baseName = baseName;
         }
@@ -234,13 +219,11 @@ public sealed interface PVCameraInfo {
         }
     }
 
-    @JsonTypeName("PVFileCameraInfo")
     public static final class PVFileCameraInfo implements PVCameraInfo {
         public final String path;
         public final String name;
 
-        @JsonCreator
-        public PVFileCameraInfo(@JsonProperty("path") String path, @JsonProperty("name") String name) {
+        public PVFileCameraInfo(String path, String name) {
             this.path = path;
             this.name = name;
         }
@@ -291,25 +274,20 @@ public sealed interface PVCameraInfo {
     }
 
     /**
-     * A second feed from a camera that another VisionModule captures: the same frames, with its
-     * own pipeline, frame rate and NetworkTables name -- for example a full-resolution AprilTag
-     * search at a few fps beside the camera's own pipeline. The frames come from the parent's
-     * newest-frame capture (V4l2LatestFrame, Y16 sources); the parent owns the device and its
-     * controls. Create one through /api/utils/assignUnmatchedCamera with {"cameraInfo":
-     * {"PVSecondaryFeedInfo": {"parentPath": <the parent's uniquePath>, "name": ..., "maxFps":
-     * ...}}}.
+     * A second feed from a camera that another VisionModule captures: the same frames, with its own
+     * pipeline, frame rate and NetworkTables name -- for example a full-resolution AprilTag search at
+     * a few fps beside the camera's own pipeline. The frames come from the parent's newest-frame
+     * capture (V4l2LatestFrame, Y16 sources); the parent owns the device and its controls. Create one
+     * through /api/utils/assignUnmatchedCamera with {"cameraInfo": {"type":
+     * "PVCameraInfo.PVSecondaryFeedInfo", "parentPath": <the parent's uniquePath>, "name": ...,
+     * "maxFps": ...}}.
      */
-    @JsonTypeName("PVSecondaryFeedInfo")
     public static final class PVSecondaryFeedInfo implements PVCameraInfo {
         public final String parentPath;
         public final String name;
         public final double maxFps;
 
-        @JsonCreator
-        public PVSecondaryFeedInfo(
-                @JsonProperty("parentPath") String parentPath,
-                @JsonProperty("name") String name,
-                @JsonProperty("maxFps") double maxFps) {
+        public PVSecondaryFeedInfo(String parentPath, String name, double maxFps) {
             this.parentPath = parentPath;
             this.name = name != null && !name.isBlank() ? name : defaultName(parentPath);
             this.maxFps = maxFps > 0 ? maxFps : 5;

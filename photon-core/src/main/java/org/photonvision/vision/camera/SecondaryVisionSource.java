@@ -17,9 +17,7 @@
 
 package org.photonvision.vision.camera;
 
-import edu.wpi.first.cscore.VideoMode;
-import edu.wpi.first.util.PixelFormat;
-import java.util.HashMap;
+import java.util.List;
 import org.photonvision.common.configuration.CameraConfiguration;
 import org.photonvision.vision.frame.FrameProvider;
 import org.photonvision.vision.frame.FrameStaticProperties;
@@ -27,6 +25,8 @@ import org.photonvision.vision.frame.provider.SecondaryFrameProvider;
 import org.photonvision.vision.frame.provider.SharedCaptures;
 import org.photonvision.vision.processes.VisionSource;
 import org.photonvision.vision.processes.VisionSourceSettables;
+import org.wpilib.util.PixelFormat;
+import org.wpilib.vision.camera.VideoMode;
 
 /**
  * A second pipeline on another camera's frames (PVCameraInfo.PVSecondaryFeedInfo). It has its own
@@ -89,7 +89,7 @@ public class SecondaryVisionSource extends VisionSource {
             super(cameraConfiguration);
             this.parentPath = parentPath;
             this.fps = (int) Math.max(1, Math.round(maxFps));
-            videoModes.put(0, getCurrentVideoMode());
+            videoModes.add(getCurrentVideoMode());
             calculateFrameStaticProps();
         }
 
@@ -109,16 +109,16 @@ public class SecondaryVisionSource extends VisionSource {
             var capture = SharedCaptures.get(parentPath);
             var parent = capture != null ? capture.staticProperties() : null;
             if (parent != null) {
-                return new VideoMode(PixelFormat.kY16, parent.imageWidth, parent.imageHeight, fps);
+                return new VideoMode(PixelFormat.Y16, parent.imageWidth, parent.imageHeight, fps);
             }
-            return new VideoMode(PixelFormat.kY16, DEFAULT_WIDTH, DEFAULT_HEIGHT, fps);
+            return new VideoMode(PixelFormat.Y16, DEFAULT_WIDTH, DEFAULT_HEIGHT, fps);
         }
 
         @Override
         protected void setVideoModeInternal(VideoMode videoMode) {}
 
         @Override
-        public HashMap<Integer, VideoMode> getAllVideoModes() {
+        public List<VideoMode> getAllVideoModes() {
             return videoModes;
         }
 

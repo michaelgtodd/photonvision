@@ -18,7 +18,9 @@
 
 package org.photonvision.jni;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.avaje.jsonb.Json;
+import io.avaje.jsonb.JsonType;
+import io.avaje.jsonb.Jsonb;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.photonvision.common.hardware.Platform;
 
 /** Loads dynamic libraries for all platforms. */
 public final class CombinedRuntimeLoader {
@@ -102,7 +105,7 @@ public final class CombinedRuntimeLoader {
                 filePath = "/linux/x86/";
             } else if (intel64) {
                 filePath = "/linux/x86-64/";
-            } else if (new File("/usr/local/frc/bin/frcRunRobot.sh").exists()) {
+            } else if (Platform.isAthena()) {
                 filePath = "/linux/athena/";
             } else if ("arm".equals(arch) || "arm32".equals(arch)) {
                 filePath = "/linux/arm32/";
@@ -138,15 +141,18 @@ public final class CombinedRuntimeLoader {
      * Architecture-specific information containing file hashes for a specific CPU architecture (e.g.,
      * x86-64, arm64).
      */
+    @Json
     public record ArchInfo(Map<String, String> fileHashes) {}
 
     /**
      * Platform-specific information containing architectures for a specific OS platform (e.g., linux,
      * windows).
      */
+    @Json
     public record PlatformInfo(Map<String, ArchInfo> architectures) {}
 
     /** Overall resource information to be serialized */
+    @Json
     public record ResourceInformation(
             // Combined MD5 hash of all native resource files
             String hash,
@@ -166,10 +172,10 @@ public final class CombinedRuntimeLoader {
      */
     public static <T> List<String> extractLibraries(Class<T> clazz, String resourceName)
             throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
+        JsonType<ResourceInformation> jsonb = Jsonb.instance().type(ResourceInformation.class);
         ResourceInformation resourceInfo;
         try (var stream = clazz.getResourceAsStream(resourceName)) {
-            resourceInfo = mapper.readValue(stream, ResourceInformation.class);
+            resourceInfo = jsonb.fromJson(stream);
         }
 
         var platformPath = Paths.get(getPlatformPath());

@@ -64,7 +64,7 @@
 #include <vector>
 
 #include <opencv2/core/mat.hpp>
-#include <wpi/timestamp.h>
+#include "wpi/nt/ntcore_cpp.hpp"
 
 // Zero-copy hand-off to CUDA, provided by libphotongpu (photon-gpu's
 // src/GpuCapture.h declares the same struct; the version field guards it).
@@ -191,7 +191,7 @@ struct Grabber {
   bool streaming = false;
   std::vector<Buffer> buffers;
   int latest = -1;  // newest filled buffer, held (not queued)
-  int64_t latestTimeUs = 0;
+  int64_t latestTimeNs = 0;
   uint64_t latestSeq = 0;
   int inUse = -1;  // buffer grab() is converting; one conversion at a time
   // Per reader (0: the camera's own pipeline; more from addConsumer), the
@@ -202,10 +202,10 @@ struct Grabber {
   std::atomic<const PhotonGpuCaptureOps*> gpu{nullptr};
 };
 
-int64_t MonotonicUs() {
+int64_t MonotonicNs() {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
-  return static_cast<int64_t>(ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
+  return static_cast<int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
 }
 
 // cscore's descriptor for the device: one of ours that points at it and has
@@ -424,11 +424,12 @@ void Run(Grabber* g) {
       continue;
     }
 
-    // The buffer's CLOCK_MONOTONIC capture time, in wpi::Now()'s timebase
-    // (the translation cscore makes for the same buffers).
-    int64_t bufUs = static_cast<int64_t>(b.timestamp.tv_sec) * 1000000 +
-                    b.timestamp.tv_usec;
-    int64_t timeUs = static_cast<int64_t>(wpi::Now()) - (MonotonicUs() - bufUs);
+    // The buffer's CLOCK_MONOTONIC capture time, in nanoseconds in
+    // wpi::nt::Now()'s timebase (the translation cscore makes for the same
+    // buffers).
+    int64_t bufNs = static_cast<int64_t>(b.timestamp.tv_sec) * 1000000000 +
+                    static_cast<int64_t>(b.timestamp.tv_usec) * 1000;
+    int64_t timeNs = static_cast<int64_t>(wpi::nt::Now()) - (MonotonicNs() - bufNs);
 
     lastFrame = Clock::now();
     if (!sawFrame) {
@@ -445,7 +446,7 @@ void Run(Grabber* g) {
         requeue = g->latest;
       }
       g->latest = static_cast<int>(b.index);
-      g->latestTimeUs = timeUs;
+      g->latestTimeNs = timeNs;
       g->latestSeq++;
     }
     g->cv.notify_all();
@@ -556,7 +557,7 @@ static jlong GrabFor(Grabber* g, int consumer, cv::Mat* out, double timeout) {
   int fd = g->fd;
   g->inUse = idx;
   g->returnedSeqs[consumer] = g->latestSeq;
-  int64_t timeUs = g->latestTimeUs;
+  int64_t timeNs = g->latestTimeNs;
   Buffer buf = g->buffers[idx];
   lock.unlock();
 
@@ -594,7 +595,7 @@ static jlong GrabFor(Grabber* g, int consumer, cv::Mat* out, double timeout) {
     q.index = static_cast<unsigned>(idx);
     Xioctl(fd, VIDIOC_QBUF, &q);  // a failure surfaces in the capture thread
   }
-  return ok ? timeUs : 0;
+  return ok ? timeNs : 0;
 }
 
 JNIEXPORT jlong JNICALL

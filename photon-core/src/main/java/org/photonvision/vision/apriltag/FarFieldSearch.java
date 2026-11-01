@@ -17,8 +17,6 @@
 
 package org.photonvision.vision.apriltag;
 
-import edu.wpi.first.apriltag.AprilTagDetection;
-import edu.wpi.first.apriltag.AprilTagDetector;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -28,6 +26,8 @@ import org.opencv.core.Mat;
 import org.opencv.core.Rect;
 import org.photonvision.common.logging.LogGroup;
 import org.photonvision.common.logging.Logger;
+import org.wpilib.vision.apriltag.AprilTagDetection;
+import org.wpilib.vision.apriltag.AprilTagDetector;
 
 /**
  * Tier 2 of the tiered AprilTag pipeline: a full-resolution search of the far-field band, run on

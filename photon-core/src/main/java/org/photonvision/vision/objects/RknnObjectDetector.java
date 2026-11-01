@@ -33,8 +33,7 @@ import org.photonvision.vision.pipe.impl.NeuralNetworkPipeResult;
 public class RknnObjectDetector implements ObjectDetector {
     private static final Logger logger = new Logger(RknnObjectDetector.class, LogGroup.General);
 
-    /** Cleaner instance to release the detector when it goes out of scope */
-    private final Cleaner cleaner = Cleaner.create();
+    private static final Cleaner cleaner = Cleaner.create();
 
     private final Cleanable cleanable;
 
@@ -49,6 +48,8 @@ public class RknnObjectDetector implements ObjectDetector {
 
     private final Size inputSize;
 
+    private final Mat letterboxed = new Mat();
+
     /** Returns the model in use by this detector. */
     @Override
     public RknnModel getModel() {
@@ -62,9 +63,10 @@ public class RknnObjectDetector implements ObjectDetector {
      * @param inputSize The required image dimensions for the model. Images will be {@link
      *     Letterbox}ed to this shape.
      */
-    public RknnObjectDetector(RknnModel model, Size inputSize) {
+    public RknnObjectDetector(RknnModel model) {
         this.model = model;
-        this.inputSize = inputSize;
+        this.inputSize =
+                new Size(model.properties.resolutionWidth(), model.properties.resolutionHeight());
 
         // Create the detector
         objPointer =
@@ -114,18 +116,14 @@ public class RknnObjectDetector implements ObjectDetector {
         }
 
         // Resize the frame to the input size of the model
-        Mat letterboxed = new Mat();
         Letterbox scale =
                 Letterbox.letterbox(in, letterboxed, this.inputSize, ColorHelper.colorToScalar(Color.GRAY));
         if (!letterboxed.size().equals(this.inputSize)) {
-            letterboxed.release();
             throw new RuntimeException("Letterboxed frame is not the right size!");
         }
 
         // Detect objects in the letterboxed frame
         var results = RknnJNI.detect(objPointer, letterboxed.getNativeObjAddr(), nmsThresh, boxThresh);
-
-        letterboxed.release();
 
         if (results == null) {
             return List.of();
@@ -141,5 +139,6 @@ public class RknnObjectDetector implements ObjectDetector {
     @Override
     public void release() {
         cleanable.clean();
+        letterboxed.release();
     }
 }

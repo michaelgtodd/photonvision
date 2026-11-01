@@ -72,9 +72,8 @@ public class SecondaryFrameProvider extends CpuImageProcessor {
                 logger.info("Reading " + parentPath + "'s capture as reader " + reader);
             }
             var gray = new Mat();
-            long timeUs =
-                    V4l2LatestFrame.grabFor(capture.handle, reader, gray.getNativeObjAddr(), 1.0);
-            if (timeUs == 0) {
+            long timeNs = V4l2LatestFrame.grabFor(capture.handle, reader, gray.getNativeObjAddr(), 1.0);
+            if (timeNs == 0) {
                 gray.release();
                 return empty();
             }
@@ -82,7 +81,7 @@ public class SecondaryFrameProvider extends CpuImageProcessor {
             // monochrome: the "colour" image is a second header on the grey pixels
             var color = gray.submat(0, gray.rows(), 0, gray.cols());
             return new CapturedFrame(
-                    new CVMat(color), new CVMat(gray), settables.getFrameStaticProperties(), timeUs * 1000);
+                    new CVMat(color), new CVMat(gray), settables.getFrameStaticProperties(), timeNs);
         } finally {
             capture.lock.readLock().unlock();
         }

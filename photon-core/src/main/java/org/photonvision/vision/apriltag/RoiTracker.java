@@ -17,8 +17,6 @@
 
 package org.photonvision.vision.apriltag;
 
-import edu.wpi.first.apriltag.AprilTagDetection;
-import edu.wpi.first.apriltag.AprilTagDetector;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import org.opencv.core.Mat;
 import org.opencv.core.Rect;
+import org.wpilib.vision.apriltag.AprilTagDetection;
+import org.wpilib.vision.apriltag.AprilTagDetector;
 
 /**
  * Tier 3 of the tiered AprilTag pipeline: full-resolution re-detection, every frame, of tags the

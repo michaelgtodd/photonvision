@@ -16,7 +16,7 @@
  */
 
 // JNI over Team 971's CUDA AprilTag detector (third_party/frc971, Team 4143's
-// copy), producing edu.wpi.first.apriltag.AprilTagDetection objects like
+// copy), producing org.wpilib.vision.apriltag.AprilTagDetection objects like
 // WPILib's own detector does. One handle per camera; each carries its own
 // CUDA stream and apriltag_detector_t, so handles may be used concurrently
 // from different threads. The object construction follows Team 4143's
@@ -56,7 +56,7 @@ jmethodID g_detection_ctor = nullptr;
 
 bool InitClasses(JNIEnv *env) {
   if (g_detection_cls) return true;
-  jclass local = env->FindClass("edu/wpi/first/apriltag/AprilTagDetection");
+  jclass local = env->FindClass("org/wpilib/vision/apriltag/AprilTagDetection");
   if (!local) return false;
   g_detection_cls = static_cast<jclass>(env->NewGlobalRef(local));
   env->DeleteLocalRef(local);
@@ -161,7 +161,7 @@ JNIEXPORT jlong JNICALL Java_org_photonvision_jni_GpuAprilTagJNI_create(
 /*
  * Class:     org_photonvision_jni_GpuAprilTagJNI
  * Method:    detect
- * Signature: (JJIIJ)[Ledu/wpi/first/apriltag/AprilTagDetection;
+ * Signature: (JJIIJ)[Lorg/wpilib/vision/apriltag/AprilTagDetection;
  *
  * dataPtr/width/height/step describe an 8-bit grey image (a cv::Mat's data,
  * cols, rows, step). The frame is copied to the GPU by the detector.

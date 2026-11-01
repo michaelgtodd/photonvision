@@ -22,11 +22,11 @@
  * SOFTWARE.
  */
 
-#include <gtest/gtest.h>
-#include <wpi/print.h>
+#include <catch2/catch_test_macros.hpp>
+#include <wpi/util/print.hpp>
 
 #include "PhotonVersion.h"
 
-TEST(VersionTest, PrintVersion) {
-  wpi::println("{}", photon::PhotonVersion::versionString);
+TEST_CASE("VersionTest PrintVersion", "[photonlib]") {
+  wpi::util::println("{}", photon::PhotonVersion::versionString);
 }

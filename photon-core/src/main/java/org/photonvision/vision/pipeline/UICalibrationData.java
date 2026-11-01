@@ -17,53 +17,65 @@
 
 package org.photonvision.vision.pipeline;
 
+import io.avaje.jsonb.Json;
 import org.opencv.objdetect.Objdetect;
 
+@Json
 public class UICalibrationData {
     public int videoModeIndex;
     public int count;
-    public int minCount;
-    public boolean hasEnough;
-    public double squareSizeIn;
+    public double squareSizeMeters;
     public int patternWidth;
     public int patternHeight;
     public BoardType boardType;
-    public double markerSizeIn;
+    public double markerSizeMeters;
     public boolean useOldPattern;
     public TagFamily tagFamily;
+    public boolean autoCalibrate = false;
+
+    // Null when no board is visible; otherwise whether the board has moved far enough from the last
+    // snapshot and the user should hold still
+    public Boolean movedFarEnough = null;
 
     public UICalibrationData() {}
 
     public UICalibrationData(
             int count,
             int videoModeIndex,
-            int minCount,
-            boolean hasEnough,
-            double squareSizeIn,
-            double markerSizeIn,
+            double squareSizeMeters,
+            double markerSizeMeters,
             int patternWidth,
             int patternHeight,
             BoardType boardType,
             boolean useOldPattern,
-            TagFamily tagFamily) {
+            TagFamily tagFamily,
+            boolean autoCalibrate,
+            Boolean movedFarEnough) {
         this.count = count;
-        this.minCount = minCount;
         this.videoModeIndex = videoModeIndex;
-        this.hasEnough = hasEnough;
-        this.squareSizeIn = squareSizeIn;
-        this.markerSizeIn = markerSizeIn;
+        this.squareSizeMeters = squareSizeMeters;
+        this.markerSizeMeters = markerSizeMeters;
         this.patternWidth = patternWidth;
         this.patternHeight = patternHeight;
         this.boardType = boardType;
         this.useOldPattern = useOldPattern;
         this.tagFamily = tagFamily;
+        this.autoCalibrate = autoCalibrate;
+        this.movedFarEnough = movedFarEnough;
     }
 
+    @Json
     public enum BoardType {
         CHESSBOARD,
-        CHARUCOBOARD,
+        CHARUCOBOARD;
+
+        @Json.Value
+        int toValue() {
+            return ordinal();
+        }
     }
 
+    @Json
     public enum TagFamily {
         Dict_4X4_1000(Objdetect.DICT_4X4_1000),
         Dict_5X5_1000(Objdetect.DICT_5X5_1000),
@@ -81,6 +93,11 @@ public class UICalibrationData {
         private TagFamily(int value) {
             this.value = value;
         }
+
+        @Json.Value
+        int toValue() {
+            return ordinal();
+        }
     }
 
     @Override
@@ -90,14 +107,10 @@ public class UICalibrationData {
                 + videoModeIndex
                 + ", count="
                 + count
-                + ", minCount="
-                + minCount
-                + ", hasEnough="
-                + hasEnough
-                + ", squareSizeIn="
-                + squareSizeIn
-                + ", markerSizeIn="
-                + markerSizeIn
+                + ", squareSizeMeters="
+                + squareSizeMeters
+                + ", markerSizeMeters="
+                + markerSizeMeters
                 + ", patternWidth="
                 + patternWidth
                 + ", patternHeight="

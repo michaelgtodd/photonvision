@@ -17,7 +17,6 @@
 
 package org.photonvision.vision.pipe.impl;
 
-import edu.wpi.first.apriltag.AprilTagDetection;
 import java.util.HashMap;
 import java.util.List;
 import org.opencv.core.CvType;
@@ -29,6 +28,7 @@ import org.photonvision.vision.apriltag.AprilTagFamily;
 import org.photonvision.vision.opencv.CVMat;
 import org.photonvision.vision.opencv.Releasable;
 import org.photonvision.vision.pipe.CVPipe;
+import org.wpilib.vision.apriltag.AprilTagDetection;
 
 /**
  * AprilTag detection on the GPU (Team 971's CUDA detector via photon-gpu). A drop-in for {@link
@@ -36,10 +36,10 @@ import org.photonvision.vision.pipe.CVPipe;
  * with corners refined on the full-resolution image). The native detector is sized to the frame and
  * recreated when the frame size or the parameters change.
  *
- * <p>Quad finding runs at decimate 2 above 1024 px unless full resolution is asked for
- * explicitly ({@code gpuFullResolution}): the pipeline decimate setting of 1 that existing
- * pipelines carry would otherwise silently switch them to the far more expensive full-resolution
- * search. Decode and edge refinement use the full-resolution image in either case.
+ * <p>Quad finding runs at decimate 2 above 1024 px unless full resolution is asked for explicitly
+ * ({@code gpuFullResolution}): the pipeline decimate setting of 1 that existing pipelines carry
+ * would otherwise silently switch them to the far more expensive full-resolution search. Decode and
+ * edge refinement use the full-resolution image in either case.
  */
 public class AprilTagDetectionGpuPipe
         extends CVPipe<
@@ -62,7 +62,8 @@ public class AprilTagDetectionGpuPipe
             boolean fullResolution) {}
 
     /** The decimate the detector will actually use for a frame of this size. */
-    public static int effectiveDecimate(int requested, int width, int height, boolean fullResolution) {
+    public static int effectiveDecimate(
+            int requested, int width, int height, boolean fullResolution) {
         if (fullResolution) return 1;
         if (width > 1024 || height > 1024) return 2;
         return requested >= 2 ? 2 : 1;
@@ -116,8 +117,7 @@ public class AprilTagDetectionGpuPipe
 
         releaseHandle();
         if (!GpuAprilTagJNI.isAvailable()) return false;
-        int decimate =
-                effectiveDecimate(params.decimate(), width, height, params.fullResolution());
+        int decimate = effectiveDecimate(params.decimate(), width, height, params.fullResolution());
         boolean reused = false;
         if (params.fullResolution()) {
             var key = new SharedKey(width, height, params);

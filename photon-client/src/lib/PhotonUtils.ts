@@ -1,9 +1,47 @@
 import { useStateStore } from "@/stores/StateStore";
-import type { Resolution } from "@/types/SettingTypes";
-import axios from "axios";
+import {
+  CalibrationPaperTypes,
+  CalibrationTagFamilies,
+  type BoardObservation,
+  type CameraCalibrationResult,
+  type Resolution
+} from "@/types/SettingTypes";
+import axios, { type AxiosRequestConfig } from "axios";
+import { length, type Length } from "@adam-rocska/units-and-measurement/length";
 
-export const resolutionsAreEqual = (a: Resolution, b: Resolution) => {
-  return a.height === b.height && a.width === b.width;
+export const resolutionsAreEqual = (a: Resolution, b?: Resolution) => {
+  return a.height === b?.height && a.width === b?.width;
+};
+
+export const meanReprojectionError = (obs: BoardObservation): number => {
+  const used = obs.reprojectionErrors.filter((_, i) => obs.cornersUsed[i]);
+  if (used.length === 0) return NaN;
+  return used.reduce((sum, pt) => sum + Math.hypot(pt.x, pt.y), 0) / used.length;
+};
+
+export interface CalibrationSummaryStatistics {
+  // Mean overall reprojection error in pixels, averaged over each observation's mean error
+  mean: number;
+  horizontalFOV: number;
+  verticalFOV: number;
+  diagonalFOV: number;
+}
+
+export const getCalibrationSummaryStatistics = (cal: CameraCalibrationResult): CalibrationSummaryStatistics => {
+  const fx = cal.cameraIntrinsics.data[0];
+  const fy = cal.cameraIntrinsics.data[4];
+  const { width, height } = cal.resolution;
+
+  const observationMeans = cal.meanErrors ?? cal.observations?.map(meanReprojectionError) ?? [];
+  const mean = observationMeans.length ? observationMeans.reduce((a, b) => a + b, 0) / observationMeans.length : NaN;
+
+  return {
+    mean,
+    horizontalFOV: (2 * Math.atan2(width / 2, fx) * 180) / Math.PI,
+    verticalFOV: (2 * Math.atan2(height / 2, fy) * 180) / Math.PI,
+    // Scales the vertical axis by the pixel aspect ratio (fx / fy) to handle non-square pixels
+    diagonalFOV: (2 * Math.atan2(Math.sqrt(width ** 2 + (height / (fy / fx)) ** 2) / 2, fx) * 180) / Math.PI
+  };
 };
 
 /**
@@ -51,15 +89,16 @@ export const forceReloadPage = async () => {
 
 export const getResolutionString = (resolution: Resolution): string => `${resolution.width}x${resolution.height}`;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const parseJsonFile = async <T extends Record<string, any>>(file: File): Promise<T> => {
   return new Promise((resolve, reject) => {
     const fileReader = new FileReader();
     fileReader.onload = (event) => {
       const target: FileReader | null = event.target;
-      if (target === null) reject();
+      if (target === null) reject(new Error("FileReader event target is null"));
       else resolve(JSON.parse(target.result as string) as T);
     };
-    fileReader.onerror = (error) => reject(error);
+    fileReader.onerror = () => reject(new Error("Error reading file"));
     fileReader.readAsText(file);
   });
 };
@@ -73,7 +112,13 @@ export const parseJsonFile = async <T extends Record<string, any>>(file: File): 
  * @param config Optional axios request configuration
  * @returns A promise that resolves to true if the POST request is successful, or false if an error occurs.
  */
-export const axiosPost = async (url: string, description: string, data?: any, config?: any): Promise<boolean> => {
+export const axiosPost = async (
+  url: string,
+  description: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any,
+  config?: AxiosRequestConfig
+): Promise<boolean> => {
   try {
     await axios.post(url, data, config);
     useStateStore().showSnackbarMessage({
@@ -81,6 +126,7 @@ export const axiosPost = async (url: string, description: string, data?: any, co
       color: "success"
     });
     return true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     if (error.response) {
       useStateStore().showSnackbarMessage({
@@ -99,5 +145,58 @@ export const axiosPost = async (url: string, description: string, data?: any, co
       });
     }
     return false;
+  }
+};
+
+export const arucoTagFamilyNameFor = (tagFamily: CalibrationTagFamilies) => {
+  switch (tagFamily) {
+    case CalibrationTagFamilies.Dict_4X4_1000:
+      return "ArUco 4x4 1000";
+    case CalibrationTagFamilies.Dict_5X5_1000:
+      return "ArUco 5x5 1000";
+    case CalibrationTagFamilies.Dict_6X6_1000:
+      return "ArUco 6x6 1000";
+    case CalibrationTagFamilies.Dict_7X7_1000:
+      return "ArUco 7x7 1000";
+    default:
+      return "ArUco Original";
+  }
+};
+
+export const arucoTagDictionaryFor = async (tagFamily: CalibrationTagFamilies) => {
+  switch (tagFamily) {
+    case CalibrationTagFamilies.Dict_4X4_1000:
+      const { ARUCO_4X4_1000 } = await import("aruco-marker/dictionaries/aruco_4x4_1000");
+      return ARUCO_4X4_1000;
+    case CalibrationTagFamilies.Dict_5X5_1000:
+      const { ARUCO_5X5_1000 } = await import("aruco-marker/dictionaries/aruco_5x5_1000");
+      return ARUCO_5X5_1000;
+    case CalibrationTagFamilies.Dict_6X6_1000:
+      const { ARUCO_6X6_1000 } = await import("aruco-marker/dictionaries/aruco_6x6_1000");
+      return ARUCO_6X6_1000;
+    case CalibrationTagFamilies.Dict_7X7_1000:
+      const { ARUCO_7X7_1000 } = await import("aruco-marker/dictionaries/aruco_7x7_1000");
+      return ARUCO_7X7_1000;
+    default:
+      return undefined;
+  }
+};
+
+export const paperDimensionsFor = (paperType: CalibrationPaperTypes): [Length, Length] => {
+  switch (paperType) {
+    case CalibrationPaperTypes.Letter:
+      return [length.in(8.5), length.in(11)];
+    case CalibrationPaperTypes.Legal:
+      return [length.in(8.5), length.in(14)];
+    case CalibrationPaperTypes.Tabloid:
+      return [length.in(11), length.in(17)];
+    case CalibrationPaperTypes.A4:
+      return [length.mm(210), length.mm(297)];
+    case CalibrationPaperTypes.A3:
+      return [length.mm(297), length.mm(420)];
+    case CalibrationPaperTypes.A2:
+      return [length.mm(420), length.mm(594)];
+    default:
+      return [length.mm(0), length.mm(0)];
   }
 };

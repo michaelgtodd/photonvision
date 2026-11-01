@@ -39,13 +39,13 @@ public class V4l2LatestFrame {
      * @param handle From {@link #create}.
      * @param matPtr Native address of the destination cv::Mat (reallocated to CV_8UC1 if needed).
      * @param timeoutSeconds How long to wait for a new frame.
-     * @return The frame's capture time in microseconds, in wpi::Now()'s timebase; 0 on timeout.
+     * @return The frame's capture time in nanoseconds, in wpi::nt::Now()'s timebase; 0 on timeout.
      */
     public static native long grab(long handle, long matPtr, double timeoutSeconds);
 
     /**
-     * Convert on the GPU from now on: grab() then returns frames in pinned host memory, which
-     * the GPU AprilTag detector reads in place.
+     * Convert on the GPU from now on: grab() then returns frames in pinned host memory, which the GPU
+     * AprilTag detector reads in place.
      *
      * @param handle From {@link #create}.
      * @param captureOps GpuAprilTagJNI.captureOps() (photon-core).
@@ -54,8 +54,8 @@ public class V4l2LatestFrame {
     public static native boolean setGpu(long handle, long captureOps);
 
     /**
-     * Register another reader of this capture (a secondary feed of the same camera). Each reader
-     * gets every newest frame once, in its own buffer.
+     * Register another reader of this capture (a secondary feed of the same camera). Each reader gets
+     * every newest frame once, in its own buffer.
      *
      * @param handle From {@link #create}.
      * @return The reader id for {@link #grabFor}; {@link #grab} is reader 0.
@@ -69,7 +69,7 @@ public class V4l2LatestFrame {
      * @param consumer From {@link #addConsumer}.
      * @param matPtr Native address of the destination cv::Mat.
      * @param timeoutSeconds How long to wait for a frame this reader has not had.
-     * @return The frame's capture time in microseconds (wpi::Now()'s timebase); 0 on timeout.
+     * @return The frame's capture time in nanoseconds (wpi::nt::Now()'s timebase); 0 on timeout.
      */
     public static native long grabFor(long handle, int consumer, long matPtr, double timeoutSeconds);
 
