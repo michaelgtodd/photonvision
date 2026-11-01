@@ -24,6 +24,7 @@ import com.diozero.internal.spi.NativeDeviceFactoryInterface;
 import com.diozero.sbc.BoardPinInfo;
 import com.diozero.sbc.DeviceFactoryHelper;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -97,7 +98,13 @@ public class HardwareManager implements AutoCloseable {
 
         Optional<StatusLED> tempStatusLED = Optional.empty();
         try {
-            tempStatusLED = hardwareConfig.statusLEDConfig.map(it -> it.create(lazyDeviceFactory.get()));
+            tempStatusLED =
+                    hardwareConfig
+                            .statusLEDConfig
+                            // A 2026 config with no status LED pins migrates to an LED on pins -1 (202703):
+                            // that is no status LED, not a broken one.
+                            .filter(it -> Arrays.stream(it.pins()).anyMatch(pin -> pin >= 0))
+                            .map(it -> it.create(lazyDeviceFactory.get()));
         } catch (DeviceAlreadyOpenedException | NoSuchDeviceException e) {
             logger.error("Status LED initialization failed, skipping", e);
         }
