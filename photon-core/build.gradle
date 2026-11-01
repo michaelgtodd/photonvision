@@ -18,6 +18,12 @@ def nativeTasks = wpilibTools.createExtractionTasks {
 
 nativeTasks.addToSourceSetResources(sourceSets.main)
 
+// photon-targeting adds its JNI zip to wpilibNatives in a model rule (createComponentZipTasks in
+// shared/config.gradle) that runs only when its tasks are realized, as naming one of them on the
+// command line does. photon-core:test alone would pack the natives without photontargetingJNI.
+evaluationDependsOn(':photon-targeting')
+project(':photon-targeting').tasks.realize()
+
 dependencies {
     wpilibNatives project(path: ':photon-targeting', configuration: 'wpilibNatives')
     wpilibNatives wpilibTools.deps.wpilib("wpimath")

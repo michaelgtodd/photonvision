@@ -19,6 +19,7 @@ package org.photonvision.vision.processes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.avaje.jsonb.Jsonb;
@@ -108,6 +109,57 @@ public class VisionSourceManagerTest {
             var str = Jsonb.instance().type(PVCameraInfo.class).toJson(csi);
             System.out.println(str);
             System.out.println(Jsonb.instance().type(PVCameraInfo.class).fromJson(str));
+        }
+        {
+            var feed =
+                    new PVCameraInfo.PVSecondaryFeedInfo(
+                            "/dev/v4l/by-path/gmsl-linkA-ar0234-0013", "gmsl-linkA-full", 5);
+
+            var str = Jsonb.instance().type(PVCameraInfo.class).toJson(feed);
+            System.out.println(str);
+            // The name the 202701 migration gives a 2026 feed, and the one the UI sends
+            assertTrue(str.contains("\"type\":\"PVCameraInfo.PVSecondaryFeedInfo\""));
+            var back =
+                    assertInstanceOf(
+                            PVCameraInfo.PVSecondaryFeedInfo.class,
+                            Jsonb.instance().type(PVCameraInfo.class).fromJson(str));
+            assertEquals(feed, back);
+            assertEquals(5.0, back.maxFps);
+        }
+    }
+
+    private static CameraConfiguration disabledFeed(String parentPath, String name) {
+        var config =
+                new CameraConfiguration(
+                        new PVCameraInfo.PVSecondaryFeedInfo(parentPath, name, 5), name + "-unique", name);
+        config.deactivated = true;
+        return config;
+    }
+
+    @Test
+    public void testSecondaryFeedsFollowRename() {
+        try (var vsm = new TestVsm()) {
+            var parentPath = "/dev/v4l/by-path/gmsl-linkA";
+            var follows = disabledFeed(parentPath, "gmsl-linkA-full");
+            var ownName = disabledFeed(parentPath, "long-range");
+            var blocked = disabledFeed(parentPath, "gmsl-linkA-wide");
+            var otherCamera = disabledFeed("/dev/v4l/by-path/gmsl-linkB", "gmsl-linkA-far");
+            var taken = disabledFeed("/dev/v4l/by-path/gmsl-linkB", "front-left-wide");
+            vsm.registerLoadedConfigs(List.of(follows, ownName, blocked, otherCamera, taken));
+
+            vsm.renameSecondaryFeeds(parentPath, "gmsl-linkA", "front-left");
+
+            assertEquals("front-left-full", follows.nickname);
+            assertEquals("long-range", ownName.nickname);
+            assertEquals("gmsl-linkA-wide", blocked.nickname); // front-left-wide is taken
+            assertEquals("gmsl-linkA-far", otherCamera.nickname);
+            assertEquals(
+                    "front-left-full",
+                    ConfigProvider.getInstance()
+                            .getConfig()
+                            .getCameraConfigurations()
+                            .get(follows.uniqueName)
+                            .nickname);
         }
     }
 

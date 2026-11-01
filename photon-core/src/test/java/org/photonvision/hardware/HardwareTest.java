@@ -24,10 +24,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.diozero.internal.provider.builtin.DefaultDeviceFactory;
 import com.diozero.internal.spi.NativeDeviceFactoryInterface;
 import io.avaje.jsonb.Jsonb;
+import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +41,7 @@ import org.photonvision.common.configuration.HardwareConfig;
 import org.photonvision.common.configuration.HardwareSettings;
 import org.photonvision.common.hardware.HardwareManager;
 import org.photonvision.common.hardware.VisionLED;
+import org.photonvision.common.hardware.statusLED.RGBStatusLED;
 import org.photonvision.common.util.TestUtils;
 
 public class HardwareTest {
@@ -115,12 +119,54 @@ public class HardwareTest {
             }
         }
 
+        private static RGBStatusLED.Config rgbStatusLed(int red, int green, int blue) {
+            var config = new RGBStatusLED.Config();
+            config.redPin = red;
+            config.greenPin = green;
+            config.bluePin = blue;
+            return config;
+        }
+
+        /** Initializes the HardwareManager and returns what it logged to the console. */
+        private String initialize() {
+            var console = new ByteArrayOutputStream();
+            var stdout = System.out;
+            System.setOut(new PrintStream(console, true));
+            try {
+                HardwareManager.initialize(hardwareConfig, new HardwareSettings());
+            } finally {
+                System.setOut(stdout);
+            }
+            System.out.print(console);
+            return console.toString();
+        }
+
+        @Test
+        public void testStatusLedInit() {
+            hardwareConfig.statusLEDConfig = Optional.of(rgbStatusLed(3, 4, 5));
+            initialize();
+
+            assertTrue(HardwareManager.getInstance().hasStatusLed());
+        }
+
         @Test
         public void testInvalidConfigInit() {
-            HardwareManager.initialize(hardwareConfig, new HardwareSettings());
+            // Red and green on one pin: the status LED can't be opened, so it should have been skipped
+            hardwareConfig.statusLEDConfig = Optional.of(rgbStatusLed(3, 3, 5));
+            var log = initialize();
 
-            // The status led config is invalid, so it should have been skipped
             assertFalse(HardwareManager.getInstance().hasStatusLed());
+            assertTrue(log.contains("Status LED initialization failed"));
+        }
+
+        @Test
+        public void testNoStatusLedPins() {
+            // HardwareConfig.json's status LED has every pin -1, as the 202703 migration writes for a
+            // config without one: that is no status LED, not one that failed
+            var log = initialize();
+
+            assertFalse(HardwareManager.getInstance().hasStatusLed());
+            assertFalse(log.contains("Status LED initialization failed"));
         }
     }
 }
